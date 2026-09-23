@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>resourceVersion Guard Notes</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Ray PR #65763 · idle termination finalizer</p>
+  <h1>resourceVersion Guard Notes</h1>
+  <p class="meta">整理自 2026-09-23 的問答 · 起點是 rueian 的 review comment <a href="https://github.com/ray-project/ray/pull/65763#discussion_r4077182942">r4077182942</a></p>
+
+  <div class="verdict">
+    <p><strong>一句話:</strong><code>finalizer_patch</code> 依照「之前讀到的」finalizers 決定要送 <code>add /metadata/finalizers</code> 還是 <code>add /metadata/finalizers/-</code>。讀取之後如果有人加了 finalizer,前者會把整個陣列換掉,別人的 finalizer 就被默默蓋掉。</p>
+    <ul>
+      <li><strong>修法:</strong>在 <code>add</code> 前面加 <code>{"op": "test", "path": "/metadata/resourceVersion", "value": &lt;讀到的 rv&gt;}</code>。物件改過,整個 patch 就被拒。</li>
+      <li><strong>被拒時回 422,不是 409</strong>:apiserver 原始碼寫死的,本地 kind cluster 也實測過。</li>
+      <li><strong>收到 422 的處理:</strong>記 warning、<code>return</code>、不送 DELETE,下一輪 reconcile 用新快照重試。</li>
+    </ul>
+  </div>
+
+  <h2>1. 為什麼 rueian 說會蓋掉 finalizer</h2>
+
+  <p class="q">原本的程式碼哪裡有 race?</p>
+  <p><code>_delete_idle_ray_cluster</code> 從 <code>self._ray_cluster</code> 拿 finalizers。這是上一次 <code>_sync_with_api_server</code> 的快取,讀取到送出 patch 之間有時間差。<code>finalizer_patch</code> 依照這份快照選路徑:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>快照裡的 finalizers</th><th>送出的 op</th><th>讀取後有人加了 finalizer</th></tr></thead>
+      <tbody>
+        <tr><td>非空</td><td><code>add /metadata/finalizers/-</code>(append)</td><td>沒事,仍然是 append</td></tr>
+        <tr><td>空或不存在</td><td><code>add /metadata/finalizers</code> 值為 <code>[ours]</code></td><td><strong>整個陣列被換成 <code>[ours]</code></strong>,回 200、沒有任何錯誤</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>關鍵在 RFC 6902:對已經存在的 object member 做 <code>add</code>,效果是<strong>取代</strong>它的值。反方向(快照有、實際被移除)時 <code>/-</code> 會因為 path 不存在而失敗,至少是會報錯的失敗。</p>
+  <p>finalizer 被蓋掉的後果:擁有那個 finalizer 的 controller 在刪除時不會被等待,它的清理邏輯(例如 GCS FT 的 Redis cleanup)會被跳過。</p>
+
+  <h2>2. JSON Patch 的 <code>test</code> op</h2>
+
+  <p class="q"><code>test</code> 是什麼?</p>
+  <p>JSON Patch(RFC 6902)六種 op 之一,另外五種是 <code>add</code>、<code>remove</code>、<code>replace</code>、<code>move</code>、<code>copy</code>。<code>test</code> 不修改任何東西,只斷言某個 path 的值等於給定的 value。</p>
+  <p><strong>重點是 JSON Patch 是原子的</strong>:一個 patch 是一組 op,依序套用,任一個失敗,整個 patch 都不生效。所以把 <code>test</code> 放最前面,就等於替後面的 op 加上前置條件:</p>
+<pre><code>[
+  {"op": "test", "path": "/metadata/resourceVersion", "value": "123456"},
+  {"op": "add",  "path": "/metadata/finalizers", "value": ["ray.io/idle-termination-cleanup-finalizer"]}
+]</code></pre>
+  <ul>
+    <li>rv 還是 <code>123456</code> → 物件沒被改過 → <code>add</code> 生效</li>
+    <li>rv 變了 → test 失敗 → 整個 patch 被拒,<code>add</code> 不會執行</li>
+  </ul>
+
+  <p class="q">為什麼用 resourceVersion?</p>
+  <p>K8s 每次修改物件都會更新 <code>metadata.resourceVersion</code>,可以當成快照的版本號。這就是 optimistic locking:不先上鎖,寫入時比對版本,衝突就重讀再試。可以想成 JSON Patch 版的 compare-and-swap。</p>
+  <div class="note">
+    <p>rueian 留言裡的 <code>"123456"</code> 只是示意。實際的值必須取自<strong>讀 finalizers 的同一份快照</strong>(<code>self._ray_cluster["metadata"]["resourceVersion"]</code>)。</p>
+  </div>
+
+  <h2>3. 422 還是 409</h2>
+
+  <p class="q">被拒時回什麼 status code?文件有寫嗎?</p>
+  <p>K8s 官方文件沒有寫,但 apiserver 原始碼是寫死的。<code>staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go</code> 的 <code>(p *jsonPatcher) applyJSPatch</code>:</p>
+<pre><code>patchedJS, err := patchObj.Apply(versionedJS)
+if err != nil {
+    return nil, nil, errors.NewGenericServerResponse(http.StatusUnprocessableEntity, "", schema.GroupResource{}, "", err.Error(), 0, false)
+}</code></pre>
+  <ul>
+    <li><a href="https://github.com/kubernetes/kubernetes/blob/v1.26.0/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go#L366-L393">v1.26.0 · L366–L393</a>(本地 kind cluster 的版本)</li>
+    <li><a href="https://github.com/kubernetes/kubernetes/blob/cc213a13bd4e8f0f253087187ffd3e1264d33f3b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go#L400-L427">master @ cc213a1 · L400–L427</a></li>
+  </ul>
+  <p>任何 JSON Patch 套用錯誤都會變成 422,不只 <code>test</code> 失敗。<code>test</code> 的比對邏輯和「一個失敗就整個中止」的行為,在 <code>github.com/evanphx/json-patch</code> 這個套件裡實作;apiserver 只負責把錯誤轉成 422。</p>
+  <p>同一個檔案約 L814 的 <code>interpretStrategicMergePatchError</code> 也會回 422,但那是 strategic merge patch 的路徑,跟 JSON Patch 無關。</p>
+
+  <p class="q">規範怎麼說?</p>
+  <ul>
+    <li><strong>RFC 6902</strong>(JSON Patch):只規定 <code>test</code> 失敗要中止整個 patch,沒有指定 HTTP code。</li>
+    <li><strong>RFC 5789 §2.2</strong>(HTTP PATCH):patch 無法套用時建議回 <code>422</code>,狀態衝突時建議回 <code>409</code>。K8s 在這裡選了 422。</li>
+  </ul>
+
+  <p class="q">那 409 是什麼情況?</p>
+  <p>K8s 文件講 optimistic concurrency 時提到的 <code>409 Conflict</code>,是另一條路徑:用 PUT,或在 merge patch 的 body 裡帶 <code>metadata.resourceVersion</code>,由儲存層比對版本。我們用的是 JSON Patch 的 <code>test</code> op,比對發生在套用 patch 時,所以回 422。</p>
+
+  <h2>4. 本地實測</h2>
+  <p>在 <code>kind-1-26-cluster</code>(apiserver v1.26.0)的臨時 namespace 裡用 ConfigMap 測。所有資源的 JSON Patch 都走同一段 <code>patch.go</code>,CRD 也一樣,所以結果可以直接套用到 RayCluster。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>情境</th><th>HTTP</th><th>結果</th></tr></thead>
+      <tbody>
+        <tr><td>A · JSON Patch,<code>test</code> 帶錯的 rv</td><td><strong>422</strong> Invalid</td><td>整個 patch 被拒,finalizers 維持空的</td></tr>
+        <tr><td>B · JSON Patch,<code>test</code> 帶正確的 rv</td><td>200</td><td><code>["example.com/x"]</code> 加上</td></tr>
+        <tr><td>C · merge patch 帶舊的 <code>metadata.resourceVersion</code></td><td><strong>409</strong> Conflict</td><td>儲存層判定版本衝突</td></tr>
+        <tr><td>D · 不加 <code>test</code>,已有 finalizer 時 <code>add /metadata/finalizers</code></td><td>200</td><td><code>["example.com/x"]</code> <strong>被覆蓋成</strong> <code>["ray.io/ours"]</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>D 就是 rueian 說的 bug 的重現;A 證明加上 <code>test</code> 之後同樣情境會被擋下。</p>
+  <div class="note">
+    <p>A 的 message 只有 <code>the server rejected our request due to an error in our request</code>,沒提到是 <code>test</code> op 失敗。所以在 warning 裡附上 <code>e.response.text</code> 幫助不大。</p>
+  </div>
+  <p class="cap">重現指令(A;B 把 value 換成當下的 rv)</p>
+<pre><code>kubectl create ns rv-test-ns
+kubectl -n rv-test-ns create configmap rv-test --from-literal=a=b
+kubectl proxy --port=18001 &amp;
+curl -i -X PATCH -H 'Content-Type: application/json-patch+json' \
+  http://127.0.0.1:18001/api/v1/namespaces/rv-test-ns/configmaps/rv-test \
+  -d '[{"op":"test","path":"/metadata/resourceVersion","value":"1"},
+       {"op":"add","path":"/metadata/finalizers","value":["example.com/x"]}]'
+
+# cleanup: remove finalizers first, otherwise the object can't be deleted
+kubectl -n rv-test-ns patch cm rv-test --type=json -p '[{"op":"remove","path":"/metadata/finalizers"}]'
+kubectl delete ns rv-test-ns</code></pre>
+
+  <h2>5. 程式碼改動</h2>
+
+  <p class="cap">python/ray/autoscaler/_private/kuberay/node_provider.py</p>
+<pre><code>def finalizer_patch(
+    finalizer: str, finalizers: Optional[List[str]], resource_version: str
+) -&gt; List[Dict[str, Any]]:
+    ...
+    # Guard the add with a resourceVersion test op: if the CR changed since it
+    # was read, the apiserver rejects the whole patch instead of letting
+    # "add /metadata/finalizers" replace finalizers added concurrently.
+    resource_version_path = "/metadata/resourceVersion"
+    return [test_patch(resource_version_path, resource_version), add_patch(path, value)]</code></pre>
+
+  <p class="cap">python/ray/autoscaler/v2/instance_manager/cloud_providers/kuberay/cloud_provider.py</p>
+<pre><code>if IDLE_TERMINATION_CLEANUP_FINALIZER not in finalizers:
+    resource_version = self._ray_cluster.get("metadata", {}).get("resourceVersion")
+    if resource_version is None:
+        logger.error(...)
+        return
+    payload = finalizer_patch(IDLE_TERMINATION_CLEANUP_FINALIZER, finalizers, resource_version)
+    try:
+        ...
+    except requests.HTTPError as e:
+        if e.response.status_code == 422:
+            logger.warning(...)   # rejected; retry next reconcile cycle
+        else:
+            logger.exception(...)
+        return
+    except Exception:
+        logger.exception(...)
+        return</code></pre>
+
+  <p class="q">為什麼 <code>None</code> 檢查放在 <code>if ... not in finalizers</code> 裡面?</p>
+  <p>finalizer 已存在時不會送 patch,用不到 rv,應該可以直接 DELETE。只有要送 patch 的路徑才需要檢查。如果不擋,<code>None</code> 會變成 <code>"value": null</code>,每一輪都 422,永遠刪不掉,log 還會一直誤報衝突。</p>
+
+  <p class="q">為什麼不寫 <code>e.response is not None</code>?</p>
+  <p>production 的 <code>HTTPError</code> 只會來自 <code>raise_for_status()</code>,一定帶 response。同一個函式處理 DELETE 404 時也沒加這個檢查,保持一致比較重要。</p>
+
+  <h2>6. Python exception 備忘</h2>
+  <ul>
+    <li>被 <code>except</code> 接住的 exception 就不會往外傳,除非自己再 <code>raise</code>。<code>logger.exception</code> 只記錄 traceback,不會重新丟出。</li>
+    <li>接住之後程式<strong>會繼續往下跑</strong>,所以 422 分支裡的 <code>return</code> 才是擋住 DELETE 的關鍵。</li>
+    <li>一個 <code>try</code> 後面多個 <code>except</code> 時,只會執行第一個符合的。<strong>在 <code>except</code> 裡 <code>raise</code> 不會被同一個 <code>try</code> 的其他 <code>except</code> 接住</strong>,會直接離開整個 <code>try</code>。</li>
+    <li><code>requests</code> 的 exception 只從 <strong>keyword</strong> 讀 response:<code>HTTPError(resp).response</code> 是 <code>None</code>,<code>HTTPError(response=resp).response</code> 才有值。</li>
+    <li>沒有專門給 422 用的 exception class,要看 <code>e.response.status_code</code>。</li>
+  </ul>
+
+  <h2>7. 測試</h2>
+
+  <p class="q">哪些測試要改?為什麼是這三個?</p>
+  <p>看的是「有沒有斷言 patch 的內容」,不是「是不是 delete 測試」。加了 <code>test</code> op 之後,只有斷言 <code>get_patches(path) == [...]</code> 的測試會受影響:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>測試</th><th>斷言 payload</th><th>要改</th></tr></thead>
+      <tbody>
+        <tr><td><code>delete_adds_finalizer_then_deletes</code></td><td>有</td><td>✅</td></tr>
+        <tr><td><code>delete_finalizer_appends_when_others_present</code></td><td>有</td><td>✅</td></tr>
+        <tr><td><code>delete_swallows_delete_failure</code></td><td>有</td><td>✅</td></tr>
+        <tr><td><code>delete_finalizer_idempotent</code></td><td>不送 patch</td><td>—</td></tr>
+        <tr><td><code>delete_swallows_patch_failure</code></td><td>patch 直接丟錯</td><td>—</td></tr>
+        <tr><td><code>suspend_*</code></td><td>走 merge patch</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p><code>resourceVersion = "123456"</code> 設在共用的 <code>get_basic_ray_cr()</code>。另外兩個用到它的測試檔沒有斷言整個 metadata,不受影響。</p>
+
+  <p class="q"><code>_overwrite_patch_to_persist_finalizer</code> 要改嗎?</p>
+  <p>不用。它不看 patch 內容,只記錄 patch 並把 finalizer 加進 CR。讓它去比對 <code>test</code> op,等於在 mock 裡重寫 apiserver,測到的會變成 mock 自己。</p>
+
+  <p class="q">新測試 <code>..._delete_skips_delete_on_patch_conflict</code> 為什麼斷言沒有 delete,而不是沒有 patch?</p>
+  <p>exception 是 mock 丟的,但丟出之後會不會 delete,取決於 production code。拿掉 422 分支的 <code>return</code>,程式就會一路跑到 DELETE,<code>_deletes == []</code> 擋的就是這種回歸。反過來,mock 從不寫入 <code>_patches</code>,斷言「沒有 patch」永遠成立,只是在測 mock。</p>
+  <p>現有的 <code>swallows_patch_failure</code> 丟的是 <code>RuntimeError</code>,走 <code>except Exception</code>,沒有任何測試進得了新加的 <code>except requests.HTTPError</code> 區塊,所以值得保留這個測試。</p>
+  <p>命名採用檔案裡「情境 + 結果」的慣例。不叫 <code>resource_version_mismatch</code>,是因為測試只讓 mock 回 422,並沒有真的比對版本。</p>
+  <div class="note">
+    <p>已知限制:沒有斷言 log,所以就算把 422 分支整個刪掉(改由 <code>except Exception</code> 接住),這個測試還是會過。要補的話,最直觀的是 <code>mock.patch.object(cloud_provider.logger, "warning")</code> 再 <code>assert_called_once()</code>。</p>
+  </div>
+
+  <h2>8. 待辦</h2>
+  <div class="note">
+    <ul>
+      <li><code>pre-commit run --files</code> 這四個檔案:<code>payload = finalizer_patch(...)</code> 等超過 88 字元的程式碼行還沒被 black 重排;<code>finalizer_patch</code> 的註解要手動折到 88 字元內。</li>
+      <li>在 build 好 Ray 的環境跑 <code>pytest python/ray/autoscaler/v2/tests/test_node_provider.py -k idle_termination</code>。<code>ray-dev-py3.10</code> 目前缺 <code>ray._raylet</code>,這些測試還沒實際跑過。</li>
+      <li>PR 描述依 AGENTS.md 註明:測試指令與結果、非重複工作的說明、使用了 AI 協助。</li>
+      <li>回覆 rueian 時可附上第 3 節的原始碼連結和第 4 節的 A / D 實測結果。</li>
+    </ul>
+  </div>
+</main>
+</body>
+</html>

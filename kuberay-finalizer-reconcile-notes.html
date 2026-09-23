@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finalizer Reconcile Notes</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">KubeRay PR #5210 · idle termination × GCS FT</p>
+  <h1>Finalizer Reconcile Notes</h1>
+  <p class="meta">整理自 2026-09-19 至 09-21 的問答 · 行號指修改前的 <code>raycluster_controller.go</code></p>
+
+  <div class="verdict">
+    <p><strong>一句話:</strong>RayCluster 同時掛了 GCS FT 與 idle-termination 兩個 finalizer 時,GCS FT block 每一輪都提前 return,idle-termination finalizer 永遠輪不到,CR 卡在 <code>Terminating</code>。</p>
+    <ul>
+      <li><strong>修法:</strong>把 idle-termination block 移到 GCS FT block 前面,外層條件加上「自己的 finalizer 還在」,移除 finalizer 之後<strong>不要 return</strong>,同一輪繼續往下走。</li>
+      <li><strong>不用動 GCS FT 的程式碼</strong>,改動只在 PR #5210 自己新增的 block。</li>
+      <li><strong>為什麼不能靠 <code>Update</code> 觸發下一輪:</strong>RayCluster 的 watch 有 predicate,只改 finalizer 的事件會被擋掉。</li>
+    </ul>
+  </div>
+
+  <h2>1. Bug 卡在哪</h2>
+
+  <p class="q">原本一直出不去,是停在 GCS FT block 的哪一段?</p>
+  <p>停在「Redis cleanup Job 已完成」的分支(第 305–333 行),每一輪都在第 332 行 <code>return ctrl.Result{}, nil</code> 結束:</p>
+<pre><code>第 248 行 guard 成立(只看 spec 有沒有設 gcsFaultToleranceOptions)
+  → 第 263 行 else(DeletionTimestamp 已設)
+  → 刪 Pod(已經沒有) → 列出 Job → hasGCSFTFinalizer 為 false
+  → 第 305 行 Job 還在 → 第 310 行 IsJobFinished 為 true
+  → 第 311-314 行 RemoveFinalizer(此時是 no-op)+ Update
+  → 第 332 行 return    ← 第 356 行的 idle-termination block 到不了</code></pre>
+  <p>關鍵是 guard 只看 <strong>spec</strong>,不看 <code>GCSFaultToleranceRedisCleanupFinalizer</code> 是否還在,所以自己的 finalizer 移除之後,同一個 block 還是會攔截。</p>
+
+  <p class="q">所以會一直重建 cleanup Job 嗎?</p>
+  <p>不會。Job 沒有設 TTL(grep 不到 <code>TTLSecondsAfterFinished</code>),而且有 owner reference 指向 RayCluster(<code>buildRedisCleanupJob</code> 裡的 <code>SetControllerReference</code>),完成的 Job 會一直留著,第 305 行的 <code>len(Items) != 0</code> 一直成立,不會走到第 337 行的建立分支。</p>
+  <p>只有兩種情況會重建:完成的 Job 被手動刪掉;或用 foreground cascading deletion 刪 CR,GC 可能先清掉 Job(這一點沒驗證)。實驗時看 <code>kubectl get jobs -w</code> 或 events 裡 <code>Created Redis cleanup Job</code> 出現幾次即可確認。</p>
+
+  <h2>2. 修法怎麼演進</h2>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>想法</th><th>結論</th><th>原因</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>把 idle block 搬到 GCS block 前面</td>
+          <td>單獨不夠</td>
+          <td>idle block 的 <code>return</code> 在 <code>if hasFinalizer</code> 外面,只要「開啟且刪除中」就無條件 return;搬前面之後換成 GCS block 永遠跑不到,Redis cleanup 不會執行,GCS finalizer 卡住</td>
+        </tr>
+        <tr>
+          <td>搬前面 + 外層條件加 <code>hasIdleTerminationCleanupFinalizer</code></td>
+          <td>可行</td>
+          <td>只有自己的 finalizer 還在時才攔截,移除後就放行</td>
+        </tr>
+        <tr>
+          <td>有 GCS finalizer 時 requeue</td>
+          <td>不需要,而且危險</td>
+          <td>idle finalizer 是稽核用途,不需要等 GCS。block 排在 GCS block 前面時,回傳 <code>RequeueAfter</code> 會讓 GCS block 一直跑不到</td>
+        </tr>
+        <tr>
+          <td>移除 finalizer 後 <code>return ctrl.Result{}, nil</code></td>
+          <td>有缺口</td>
+          <td>沒有 <code>RequeueAfter</code>,而 <code>Update</code> 產生的事件會被 predicate 擋掉(見第 3 節),沒有東西叫醒下一輪</td>
+        </tr>
+        <tr>
+          <td>移除 finalizer 後不 return,同一輪往下走</td>
+          <td><strong>採用</strong></td>
+          <td>同一輪就進入 GCS block,它自己會 <code>RequeueAfter</code> 推進後面的流程</td>
+        </tr>
+        <tr>
+          <td>改 GCS FT block 的門檻(<code>hasGCSFTFinalizer</code>)</td>
+          <td>選配,可另開 PR</td>
+          <td>可行且對應 Argo CD 的結構,但要動既有的 Redis cleanup 刪除邏輯,review 範圍較大</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>最終的程式碼形狀</h3>
+  <p class="cap">raycluster_controller.go · 位於 GCS FT block 之前</p>
+<pre><code>if utils.IsIdleTerminationOptionsEnabled(&amp;instance.Spec) {
+    if instance.DeletionTimestamp != nil &amp;&amp; !instance.DeletionTimestamp.IsZero() {
+        if r.hasIdleTerminationCleanupFinalizer(instance) {
+            // log + DeletedIdleRayCluster event
+            controllerutil.RemoveFinalizer(instance, utils.IdleTerminationCleanupFinalizer)
+            if err := r.Update(ctx, instance); err != nil {
+                return ctrl.Result{RequeueAfter: DefaultRequeueDuration}, err
+            }
+            // 不 return:同一輪繼續進 GCS FT block
+        }
+    }
+}
+// ... enableGCSFTRedisCleanup、stale embedded finalizer、GCS FT block ...</code></pre>
+
+  <h3>兩個 finalizer 都在時的流程</h3>
+<pre><code>同一輪:idle block 移除 idle finalizer → Update
+        → 往下進 GCS block:刪 Pod,head Pod 還在 → RequeueAfter 10 秒
+之後:   idle block 被跳過(finalizer 已不在)
+        → GCS block 等 Pod 結束 → 建 Redis cleanup Job → 等 Job 完成
+        → 移除 GCS finalizer → CR 被刪除</code></pre>
+
+  <p class="q">如果沒開 GCS FT 會怎樣?</p>
+  <p>idle block 移除 finalizer 並 <code>Update</code>,沒有其他 finalizer 的話 CR 這時就被刪除了。接著往下走:stale embedded block 條件不成立,GCS FT block 跳過,最後停在 generic fallback(<code>RayCluster is being deleted, just ignore</code>,<code>return ctrl.Result{}, nil</code>)。結果和原本一樣,只多一行 log。<code>ENABLE_GCS_FT_REDIS_CLEANUP=false</code> 也是同一條路徑。</p>
+
+  <h2>3. Predicate 與 Reconcile 觸發</h2>
+
+  <p class="q">predicate 是什麼?</p>
+  <p>controller-runtime 裡的事件過濾器,決定一個資源事件要不要觸發 Reconcile:</p>
+<pre><code>API server 上的資源變動
+  → watch 收到事件(Create / Update / Delete)
+  → predicate 判斷:要不要處理?
+  → 通過才放進 workqueue
+  → Reconcile() 被呼叫</code></pre>
+  <p>用途是避免不相關的變動(例如 controller 自己寫的 status)一直觸發自己。</p>
+
+  <p class="q">KubeRay 的 RayCluster 怎麼設?</p>
+  <p class="cap">raycluster_controller.go · SetupWithManager</p>
+<pre><code>For(&amp;rayv1.RayCluster{}, builder.WithPredicates(predicate.Or(
+    predicate.GenerationChangedPredicate{},  // spec 變了
+    predicate.LabelChangedPredicate{},       // labels 變了
+    predicate.AnnotationChangedPredicate{},  // annotations 變了
+)))</code></pre>
+  <p>Update 事件帶有舊、新兩份物件,predicate 比較兩者;<code>Or</code> 表示任一個成立就放行。<code>generation</code> 是 apiserver 在 spec 變更時遞增的計數器,改 status 或 metadata 不會遞增。</p>
+
+  <div class="note">
+    <p><strong>所以移除 finalizer 的 <code>Update</code> 大概不會觸發下一輪。</strong>它只改 <code>metadata.finalizers</code>,三個條件都不成立,事件被丟掉。這是根據 Kubernetes 的一般行為與這段 predicate 推論的,沒有在實際叢集上驗證。</p>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>會觸發 Reconcile</th><th>不會(被擋掉)</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>spec 變更、labels 或 annotations 變更</td>
+          <td>只改 <code>metadata.finalizers</code>、只改 status</td>
+        </tr>
+        <tr>
+          <td><code>Owns(Pod / Service / Secret / PVC)</code> 的事件(另外的 watch,沒套這個 predicate)</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>Reconcile 自己回傳的 <code>RequeueAfter</code>(直接進 workqueue,不經過 predicate)</td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="q">那為什麼要拿掉 <code>Update</code> 之後的 return?</p>
+<pre><code>保留 return:  移除 finalizer → return(不排下一輪)
+              → Update 的事件被 predicate 擋掉
+              → 沒人叫醒 Reconcile,GCS cleanup 要等別的事件才開始
+
+拿掉 return:  移除 finalizer → 繼續往下
+              → 同一輪進 GCS block,它自己會 RequeueAfter 推進</code></pre>
+  <p>拿掉 return 是讓 idle block 做完事之後,在同一輪把接力棒交給 GCS block,不必依賴一個不一定會來的事件。回傳 <code>RequeueAfter: DefaultRequeueDuration</code> 也是等價作法,只是多繞一輪。</p>
+
+  <h3>前面另一個說錯又更正的地方</h3>
+  <p>「no-op <code>Update</code> 不會產生 watch 事件」與「移除 finalizer 的 <code>Update</code> 會觸發下一輪」這兩句,前者只是推論,後者在這個 predicate 下是錯的。更精確的說法:每一輪停在第 332 行沒有 <code>RequeueAfter</code>,所以是「該輪結束,等別的事件」,不是持續空轉。</p>
+
+  <h2>4. 業界怎麼做(摘要)</h2>
+  <ul>
+    <li><strong>Argo CD</strong> 的 <code>finalizeApplicationDeletion</code> 是唯一通過「同一物件、多個 finalizer、同一個函式處理」篩選的例子:每個 block 以自己的 finalizer 為門檻,只有在等待中,或剛移除自己的 finalizer 時才 return。門檻原則與這次修法相同。</li>
+    <li>Cluster API、KubeVirt、Crossplane 多半是一個 reconciler 一個 finalizer;Kueue、Rook 每個物件只有一個 finalizer。沒有專案靠 block 順序避免互相餓死。</li>
+    <li>Kubernetes 規則:<code>deletionTimestamp</code> 設定後只能移除 finalizer,不能新增。</li>
+    <li>完整的來源與查證程度見 Artifact「Finalizer Prior Art」(<a href="https://claude.ai/artifact/DqVpNY8m5ChHmiQywxnrLG">連結</a>,私人)。</li>
+  </ul>
+
+  <h2>5. 還沒驗證的事</h2>
+  <div class="note">
+    <ul>
+      <li><strong>沒有編譯也沒有跑測試。</strong>當時機器磁碟滿了(<code>no space left on device</code>),<code>go build</code> 全部失敗;之後也被要求不要跑測試。</li>
+      <li>預計加的測試:envtest(同時掛兩個 finalizer,手動把 Redis cleanup Job 標成完成,重用 <code>updateK8sJobToComplete</code>),以及一個 fake-client 單元案例(一輪之後 idle finalizer 消失、GCS finalizer 還在、同一輪已建立 Redis cleanup Job)。</li>
+      <li>predicate 會擋掉只改 finalizer 的事件,這一點是推論,沒在叢集上確認。</li>
+      <li>diff 裡 <code>calculateStatus</code> 有一行被刪掉的 <code>// TODO: ... meta.SetStatusCondition()</code> 註解,與這次修法無關,是否還原待決定。</li>
+    </ul>
+  </div>
+</main>
+</body>
+</html>
