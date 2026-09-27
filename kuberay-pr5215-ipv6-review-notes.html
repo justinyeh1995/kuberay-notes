@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR 5215 IPv6 Review</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+</style>
+<body>
+<main>
+  <p class="eyebrow">KubeRay PR #5215 · IPv6 support</p>
+  <h1>PR 5215 IPv6 Review Notes</h1>
+  <p class="meta">整理自 2026-09-24 ~ 09-27 的問答 · PR <a href="https://github.com/ray-project/kuberay/pull/5215">#5215</a> by 400Ping · 行號以 commit <code>98e34846</code> 為準</p>
+
+  <div class="verdict">
+    <p><strong>一句話:</strong>Ray 2.56 起本身支援 IPv6,但 KubeRay 產生的設定寫死了 IPv4 假設(<code>dashboard-host: 0.0.0.0</code>、<code>host:port</code> 字串拼接、只適用 IPv4 的 SAN grep)。這個 PR 拿掉這些假設,方向正確;最大的問題是為了在 Pod 啟動時判斷 IP family 而在 <code>KUBERAY_GEN_RAY_START_CMD</code> 前面加了 <code>eval</code>,會弄壞現有使用者(包括 IPv4)。</p>
+    <ul>
+      <li><strong>沒爭議的部分:</strong><code>net.JoinHostPort</code>、mTLS 加 <code>::1</code>、<code>openssl verify -verify_ip</code>、IPv6 CI job。</li>
+      <li><strong>主要疑慮:</strong><code>eval</code> 前綴是 breaking change,已用 GKE / Azure 的真實範例證明。</li>
+      <li><strong>建議的替代:</strong>operator 在建 Pod 前從 head Service 的 <code>spec.ipFamilies</code> 判斷 family,直接寫 <code>::</code> 或 <code>0.0.0.0</code>,就不需要 shell 片段和 <code>eval</code>。</li>
+    </ul>
+  </div>
+
+  <h2>1. 背景與時間線</h2>
+
+  <p class="q">這個 PR 是憑空出現的嗎?</p>
+  <p>不是。PR 描述只寫了 <code>Related to ray-project/ray#54660</code>,背景沒有串起來:</p>
+  <ul>
+    <li><a href="https://github.com/ray-project/ray/issues/54660">ray#54660</a>「[Core] IPv6 Support」:整合 issue,2026-09-17 以 completed 關閉。設計文件是 Ray 端的(hostNetwork + 多網卡情境)。</li>
+    <li>ray#54660 裡有使用者(Ray 2.53 + KubeRay,IPv6-only)回報 head 選到 <code>169.254.172.8</code>,workaround 是 <code>dashboard-host: "::"</code> 加 <code>node-ip-address</code>。Yicheng 回覆「I didn't do any support for KubeRay yet」。</li>
+    <li>KubeRay <a href="https://github.com/ray-project/kuberay/issues/2999">#2999</a> roadmap 列了 IPv6;<a href="https://github.com/ray-project/kuberay/issues/4205">#4205</a> dual-stack bug 還開著,這個 PR <strong>不會</strong>修好它。</li>
+  </ul>
+
+  <p class="q">Ray 2.56.0 改了什麼,讓 IPv6-only 能運作?</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Ray PR</th><th>內容</th><th>首次出現的版本</th></tr></thead>
+      <tbody>
+        <tr><td>[1/n] #55281、[2/n] #55282</td><td>Python / C++ 的 <code>host:port</code> 轉換支援 IPv6</td><td>2.49.0</td></tr>
+        <tr><td>[3/n] #55443</td><td>網路工具函式的 Cython binding</td><td>2.50.0</td></tr>
+        <tr><td>[4/n] #56147</td><td>socket 支援 IPv6</td><td>2.52.0</td></tr>
+        <tr><td>[5/n] #59852</td><td>IPv6 localhost、移除 <code>0.0.0.0</code> bind</td><td>被 #60012 revert,等於沒有</td></tr>
+        <tr><td><strong>[6/n] #60023</strong></td><td><code>127.0.0.1</code> → <code>GetLocalhostIP()</code>、<code>0.0.0.0</code> → <code>GetAllInterfacesIP()</code>,依 family 回傳</td><td><strong>2.56.0</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>KubeRay 明確傳 <code>--dashboard-host=0.0.0.0</code>,把 Ray 自己的 family 判斷蓋掉了,這是 KubeRay 這邊要改的原因。文件寫最低 2.56.0,但 E2E 只測 2.58.0。</p>
+
+  <p class="q">PR 的 commit 演變</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Commit</th><th>內容</th><th>IPv6 E2E</th></tr></thead>
+      <tbody>
+        <tr><td><code>c3ff0e41</code></td><td>IPv6 + dual-stack,已經用 shell 片段判斷 dashboard family</td><td>—</td></tr>
+        <tr><td><code>a379523e</code></td><td>加 <code>eval</code> 前綴</td><td>❌</td></tr>
+        <tr><td><code>dabdcbca</code></td><td>改成只支援 single-stack</td><td>❌</td></tr>
+        <tr><td><code>dc7d7d52</code></td><td>precommit</td><td>❌</td></tr>
+        <tr><td><code>a949a25c</code></td><td>CI 拿掉 kind node 的 DNS <code>search</code> 行(只改一行 YAML)</td><td>✅</td></tr>
+        <tr><td><code>2b855747</code></td><td>拿掉 <code>node-ip-address</code> 預設值(回應 machichima)</td><td>✅</td></tr>
+        <tr><td><code>98e34846</code></td><td>回應我的 review:mTLS table test、印出 openssl 錯誤</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>CI 失敗的真正原因是 DNS(<code>a949a25c</code> 只改一行就轉綠)。作者曾開 <a href="https://github.com/ray-project/ray/pull/65867">ray#65867</a>(gRPC server 依 node family bind)想從 Ray 端修,發現是 CoreDNS 後關掉。</p>
+
+  <h2>2. 逐項改動與評估</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>改動</th><th>位置</th><th>解決什麼</th><th>評估</th></tr></thead>
+      <tbody>
+        <tr><td><code>dashboard-host</code> 預設改成 <code>$KUBERAY_DASHBOARD_HOST</code> + 啟動時 shell 片段</td><td><code>pod.go:54</code>、<code>:931</code>、<code>:1423</code></td><td>IPv6 Pod 的 dashboard 只 listen IPv4,外面連不到</td><td>問題是真的;做法造成 <code>eval</code></td></tr>
+        <tr><td><code>KUBERAY_GEN_RAY_START_CMD</code> 值前面加 <code>eval</code></td><td><code>pod.go:1340</code></td><td>讓值裡的 <code>if … fi</code> 和變數被重新解析</td><td>🔴 breaking change</td></tr>
+        <tr><td><code>net.JoinHostPort</code></td><td><code>util.go</code> Serve proxy URL</td><td><code>http://2001:db8::5:8000/</code> 格式錯誤</td><td>✅</td></tr>
+        <tr><td><code>normalizeIPs</code> 依 family 加 <code>127.0.0.1</code> / <code>::1</code></td><td><code>raycluster_mtls_controller.go</code></td><td>IPv6 Pod 走 <code>::1</code> 時 TLS 驗證</td><td>🟡 對,條件寫法彆扭</td></tr>
+        <tr><td>init container 改用 <code>openssl verify -verify_ip</code></td><td><code>pod.go:527</code></td><td>舊 grep 永遠比對不到 IPv6(OpenSSL 印出展開大寫格式)</td><td>✅ 已補錯誤訊息</td></tr>
+        <tr><td><code>LOCAL_HOST</code> 改成 <code>localhost</code></td><td><code>constant.go:304</code></td><td>head 的 <code>RAY_ADDRESS</code></td><td>❓ 影響所有 IPv4,沒證明必要</td></tr>
+        <tr><td>CI resolv.conf workaround</td><td><code>.buildkite/test-e2e.yml</code></td><td>kind node 繼承 CI host 的 search domain</td><td>✅ 建議加註解</td></tr>
+        <tr><td><del><code>node-ip-address=$KUBERAY_POD_IP</code> 預設值</del></td><td>—</td><td>Ray 自動偵測可能選錯位址</td><td>已拿掉</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>3. eval 的問題(最重要)</h2>
+
+  <p class="q">為什麼會有 eval?</p>
+  <p>變數內容裡的 <code>if</code>、<code>;</code>、<code>$VAR</code> 在展開時只是普通文字,不會被執行。作者用 <code>eval</code> 強迫 bash 再解析一次。這只在「bash 裡不加引號展開 <code>$KUBERAY_GEN_RAY_START_CMD</code>」這一種寫法有效。</p>
+  <p class="cap">PR 產生的環境變數值</p>
+<pre><code>head:   eval if [[ "$KUBERAY_POD_IP" == *:* ]]; then export KUBERAY_DASHBOARD_HOST="::"; else ...; fi; ray start --head --dashboard-host=$KUBERAY_DASHBOARD_HOST ...
+worker: eval ray start --address=... --block</code></pre>
+
+  <p class="q">真實專案實測(GitHub code search,本機模擬)</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>專案</th><th>寫法</th><th>head</th><th>worker</th></tr></thead>
+      <tbody>
+        <tr><td><a href="https://github.com/GoogleCloudPlatform/kubernetes-engine-samples/blob/bdc817089130427e7a01b338d30e6f3b137b60f2/ai-ml/nemo-rl-on-gke/nemoRL/values.yaml#L119">GKE NeMo-RL sample</a>(gpu-recipes、ai-on-gke 同寫法)</td><td><code>exec ${KUBERAY_GEN_RAY_START_CMD}</code></td><td>❌ <code>exec: eval: not found</code></td><td>❌</td></tr>
+        <tr><td>linagora/openrag</td><td><code>uv run $KUBERAY_GEN_RAY_START_CMD</code></td><td>❌</td><td>❌</td></tr>
+        <tr><td>run-house/kubetorch</td><td><code>Popen(full_cmd, shell=True)</code></td><td>❌ 語法錯誤</td><td>✅</td></tr>
+        <tr><td><a href="https://github.com/Azure/taugrid/blob/c54cc786e28727e177979f30899402f7ad7b2cb6/cli/internal/manifest/assets/managed-workflow-rayjob-cpu.yaml.tmpl#L84">Azure/taugrid</a></td><td><code>exec bash -lc "${KUBERAY_GEN_RAY_START_CMD}"</code></td><td>❌ 語法錯誤</td><td>✅</td></tr>
+        <tr><td>aws-samples EKS chart</td><td><code>CMD="${...}"; eval "$CMD"</code></td><td>❌ 語法錯誤</td><td>✅</td></tr>
+        <tr><td>NVIDIA-NeMo/RL、splunk-ai-operator、官方 sample</td><td>不加引號 <code>$KUBERAY_GEN_RAY_START_CMD</code></td><td>✅</td><td>✅</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>這個變數當初就是為了 <a href="https://github.com/ray-project/kuberay/issues/1560">#1560</a> 的 wrapper 用途加的(把 KubeRay 產生的指令交給自己的程式執行)。<code>eval</code> 無條件加在所有 node 上,IPv4 cluster 一樣受影響。</p>
+
+  <p class="q">最小重現(已放進 PR comment)</p>
+<pre><code>export X='eval if true; then echo yes; fi'
+
+# exec ${KUBERAY_GEN_RAY_START_CMD}
+bash -c 'exec ${X}'
+# → bash: line 0: exec: eval: not found
+
+# exec bash -lc "${KUBERAY_GEN_RAY_START_CMD}"
+bash -c 'exec bash -lc "${X}"'
+# → syntax error near unexpected token `then'</code></pre>
+  <div class="note">
+    <p>自己踩過的坑:<code>X='...'</code> 單獨一行而沒有 <code>export</code>,子 bash 看不到 <code>X</code>,<code>exec</code> 沒參數就直接成功,什麼都不印,看起來像「沒問題」。</p>
+  </div>
+
+  <p class="q">替代方案:operator 事先決定 family</p>
+  <ul>
+    <li><code>raycluster_controller.go:359</code> 的 reconcile 順序是先 <code>reconcileHeadService</code>(365)再 <code>reconcilePods</code>(369)。</li>
+    <li>API server 會自動填 Service 的 <code>spec.ipFamilies</code>。KubeRay head Service 是 headless + 有 selector,預設 <code>SingleStack</code>,只有一個 family(已查 k8s v1.35 <code>alloc.go</code> 的 <code>initIPFamilyFields</code>)。</li>
+    <li>改法:<code>DefaultHeadPodTemplate</code> / <code>setMissingRayStartParams</code> 多傳 family,直接填 <code>::</code> 或 <code>0.0.0.0</code>;刪掉 <code>pod.go:930-932</code> 的片段和 <code>:1340</code> 的 <code>eval</code>。</li>
+    <li>待作者評估:cache 時序(拿不到就 requeue 或用 <code>0.0.0.0</code>)、使用者自訂 head Service、函式簽名要改。</li>
+    <li>作者當初沒這樣做的推測:一開始是 dual-stack 設計,看 Pod 自己的 IP 最準;改成 single-stack 後沒回頭檢討。</li>
+  </ul>
+
+  <h2>4. Ray 自動偵測 node IP</h2>
+
+  <p class="q">拿掉 node-ip-address 預設值後,Ray 2.56 會拿到正確的 IPv6 嗎?</p>
+  <p>看環境。<code>src/ray/util/network_util.cc:291</code> <code>GetNodeIpAddressFromPerspective</code>:</p>
+  <ul>
+    <li><strong>head</strong>(<code>scripts.py:1041</code>,不帶位址):先 UDP connect <code>8.8.8.8:53</code>(IPv4),失敗才試 <code>[2001:4860:4860::8888]:53</code>。</li>
+    <li><strong>worker</strong>(<code>scripts.py:1228</code>,帶 head FQDN):依 head 位址的 family 選 v4 / v6。</li>
+    <li>kind 的 IPv6 Pod 沒有 IPv4 路由 → 8.8.8.8 失敗 → 拿到 Pod IPv6 ✅(作者就是在這裡驗證的)。</li>
+    <li>Pod 同時有 IPv4 link-local 介面(疑似 EKS IPv6 模式)→ 8.8.8.8 成功 → head 回傳 <code>169.254.x.x</code> ❌。</li>
+    <li><code>GetLocalhostIP</code>(257)也是 IPv4 優先,影響 GCS 的 bind 位址。</li>
+  </ul>
+  <p>建議文件寫上 workaround:<code>node-ip-address: "$(KUBERAY_POD_IP)"</code>(kubelet 展開,不依賴 <code>eval</code>)。</p>
+
+  <h2>5. 測試缺口</h2>
+  <ul>
+    <li>✅ 已修:<code>TestMTLSController_AutoGenerate_UpdatesIPAddresses</code> 原本從 IPv4 直接改成 IPv6,現在是 IPv4/IPv6 table test。</li>
+    <li>共用 E2E fixture(<code>test/support/support.go:120</code> 等)寫死 <code>dashboard-host: "0.0.0.0"</code>,新的預設路徑(佔位值 + 片段)在 IPv4 下沒有 E2E 覆蓋。helm-chart 與 samples 也有 12 個檔案寫死 <code>0.0.0.0</code>,照範例部署的 IPv6 使用者不會自動拿到 <code>::</code>。</li>
+    <li>沒有任何測試驗證 <code>KUBERAY_GEN_RAY_START_CMD</code> 的新格式在 overwrite 路徑下能不能用。</li>
+    <li>「測試都過」只代表 PR 做到它宣稱的事,不代表沒有副作用。</li>
+  </ul>
+
+  <h2>6. 我留的 comment 與狀態</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>位置</th><th>內容</th><th>狀態</th></tr></thead>
+      <tbody>
+        <tr><td><code>raycluster_mtls_controller_test.go:319</code></td><td>保留 IPv4 測試,改成 table test</td><td>✅ 作者已改(98e3484)</td></tr>
+        <tr><td><code>pod.go:527</code></td><td>驗證範圍變大是否故意?印出 openssl 錯誤</td><td>✅ 作者已改並說明</td></tr>
+        <tr><td><code>pod.go:932</code></td><td>片段應放進 <code>generateRayStartCommand</code> 或補 log;overwrite 路徑下 L1492 的 log 不完整</td><td>等回覆</td></tr>
+        <tr><td><code>pod.go:1340</code></td><td><code>eval</code> breaking change + GKE / Azure 例子 + 最小重現 + <code>spec.ipFamilies</code> 替代方案</td><td>等回覆</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="q">log comment 的精確範圍</p>
+  <p>預設路徑在 <code>pod.go:944</code>(<code>BuildPod</code>)有記錄含片段的完整指令;只有 <code>ray.io/overwrite-container-cmd</code>(或自己的 command 裡有 <code>ray start</code>)時才走不到 944,只剩 1492。而且這些都是 operator 的 log,使用者更常看的是 <code>kubectl get pod -o yaml</code>。所以是 nit。</p>
+
+  <h2>7. 待辦</h2>
+  <div class="note">
+    <ul>
+      <li>回覆作者已處理的兩個 thread(「Thanks, LGTM」),方便 resolve。</li>
+      <li>等作者回 <code>eval</code> 那則。若作者只測 worker,補充 Azure 例子只在 head 會壞。</li>
+      <li><code>eval</code> 有結論後再用一則總結提:PR 描述過時(第二段講的是已拿掉的 <code>node-ip-address</code>;「Fixes generated Ray start command expansion」其實是 PR 自己引入的行為變更);連結 ray#60023、#2999、#4205;說明不支援 dual-stack;E2E 只測 2.58.0;<code>localhost</code> 改動是否必要;IPv4 預設路徑的 E2E 覆蓋;resolv.conf 那行加註解。</li>
+      <li>checklist 的 <code>breaking-change</code>、<code>doc-updates-required</code> label 值得討論。</li>
+      <li>不用再提:glob <code>*:*</code> 被工作目錄檔名展開的邊界情況(機率太低)、<code>normalizeIPs</code> 條件寫法(nit)。</li>
+    </ul>
+  </div>
+</main>
+</body>
+</html>

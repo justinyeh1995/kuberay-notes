@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IPv6 Networking Shell Notes</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+</style>
+<body>
+<main>
+  <p class="eyebrow">Concepts · 從 KubeRay PR #5215 延伸</p>
+  <h1>IPv6 · Networking · Shell Notes</h1>
+  <p class="meta">整理自 2026-09-24 ~ 09-27 review PR #5215 時的問答 · PR 本身的紀錄見 <a href="kuberay-pr5215-ipv6-review-notes.html">kuberay-pr5215-ipv6-review-notes.html</a></p>
+
+  <div class="verdict">
+    <p><strong>一句話:</strong>這個 PR 的每個改動背後都是一個基礎觀念:IPv6 位址怎麼寫、server 要 bind 在哪、TLS 怎麼比對 IP、<code>localhost</code> 怎麼解析、Pod 的 DNS 怎麼設定、Kubernetes 和 bash 各自怎麼展開 <code>$</code>。</p>
+    <ul>
+      <li><strong>最常用到:</strong><code>::</code> 等於 <code>0.0.0.0</code>、<code>::1</code> 等於 <code>127.0.0.1</code>;IPv6 加 port 要寫 <code>[::1]:6379</code>。</li>
+      <li><strong>最容易搞混:</strong><code>$VAR</code> 是 shell 展開,<code>$(VAR)</code> 是 kubelet 展開;變數內容裡的 shell 語法不會被執行。</li>
+      <li><strong>最實用的技巧:</strong>用 <code>gh search code</code> 找真實用法、用一行指令做最小重現。</li>
+    </ul>
+  </div>
+
+  <h2>1. IPv6 位址表示法</h2>
+
+  <p class="q"><code>::</code> 到底是什麼?</p>
+  <p>IPv6 是 128 bit,寫成 8 組 16 進位,用 <code>:</code> 隔開。兩條縮寫規則:每組前導 0 可省略;連續的全 0 組可用 <code>::</code> 取代,整個位址只能用一次。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>完整寫法</th><th>縮寫</th><th>意思</th><th>IPv4 對應</th></tr></thead>
+      <tbody>
+        <tr><td><code>0:0:0:0:0:0:0:0</code></td><td><code>::</code></td><td>未指定位址,bind 時代表所有介面</td><td><code>0.0.0.0</code></td></tr>
+        <tr><td><code>0:0:0:0:0:0:0:1</code></td><td><code>::1</code></td><td>loopback</td><td><code>127.0.0.1</code></td></tr>
+        <tr><td><code>2001:0db8:0:0:0:0:0:5</code></td><td><code>2001:db8::5</code></td><td>一般位址</td><td><code>10.244.0.5</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="q">為什麼 <code>fmt.Sprintf("%s:%d", host, port)</code> 在 IPv6 會壞?</p>
+  <p><code>::1</code> 加 port 會變成 <code>::1:6379</code>,分不出哪段是 port。正確寫法是 <code>[::1]:6379</code>。Go 用 <code>net.JoinHostPort(host, port)</code>,IPv4 不加中括號、IPv6 自動加。envtest 內部也是這樣做。</p>
+
+  <h2>2. Bind 位址與 dual-stack socket</h2>
+  <ul>
+    <li>listen <code>127.0.0.1</code> / <code>::1</code>:只有同一個 Pod 連得到。</li>
+    <li>listen <code>0.0.0.0</code> / <code>::</code>:其他 Pod、Service、Ingress 都連得到。它們是 server 用的,client 不會「連 <code>::</code>」。</li>
+    <li>Linux 預設 <code>net.ipv6.bindv6only=0</code>:bind <code>::</code> 是 dual-stack,IPv4 連線也收得到(以 <code>::ffff:127.0.0.1</code> 出現)。反過來 bind <code>0.0.0.0</code> 只收 IPv4。</li>
+    <li>為什麼不一律用 <code>::</code>:有些 cluster 在 kernel 關掉 IPv6,bind <code>::</code> 會直接失敗;程式也可能設 <code>IPV6_V6ONLY</code> 關掉 dual-stack。</li>
+  </ul>
+
+  <h2>3. TLS 憑證的 SAN</h2>
+  <p>SAN(Subject Alternative Name)列出這張憑證對哪些名稱或 IP 有效。client 用來連線的名稱或 IP 必須出現在 SAN 裡。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>SAN 類型</th><th>例子</th><th>什麼時候被檢查</th></tr></thead>
+      <tbody>
+        <tr><td>DNS</td><td><code>localhost</code>、<code>xxx-head-svc.ns.svc.cluster.local</code></td><td>用主機名稱連線</td></tr>
+        <tr><td>IP</td><td><code>127.0.0.1</code>、<code>::1</code>、Pod IP</td><td>用 IP 連線</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>兩種不互相代替:連 <code>localhost:6379</code> 檢查 DNS SAN,連 <code>127.0.0.1:6379</code> 檢查 IP SAN。所以 <code>127.0.0.1</code> 改成 <code>localhost</code> 會改變 TLS 的驗證方式。</p>
+
+  <p class="q"><code>openssl verify -verify_ip</code> 跟 grep 差在哪?</p>
+  <p><code>openssl x509 -text</code> 印 IPv6 時會展開並轉大寫:<code>IP Address:2001:DB8:0:0:0:0:0:5</code>。Kubernetes 給的 Pod IP 是 <code>2001:db8::5</code>,文字比對永遠對不上。<code>-verify_ip</code> 把 IP 解析成二進位再比,而且會完整驗證憑證鏈(CA、有效期間),所以比較嚴格。</p>
+<pre><code>openssl verify -CAfile ca.crt -verify_ip 2001:db8::6 leaf.crt
+# error 64 at 0 depth lookup: IP address mismatch</code></pre>
+
+  <h2>4. localhost 怎麼解析</h2>
+  <p>跟 CoreDNS 無關,查 <code>/etc/hosts</code> 就找到了。</p>
+  <ol>
+    <li><strong>kubelet 產生 Pod 的 <code>/etc/hosts</code>:</strong>不論 IPv4 或 IPv6 Pod,都有 <code>127.0.0.1 localhost</code> 和 <code>::1 localhost ip6-localhost ip6-loopback</code>,還有 <code>&lt;Pod IP&gt; &lt;hostname&gt;</code>。</li>
+    <li><strong>libc 的 <code>getaddrinfo()</code>:</strong>依 RFC 6724 排序(可用 <code>/etc/gai.conf</code> 調)。帶 <code>AI_ADDRCONFIG</code> flag 時,只回傳本機有非 loopback 位址的 family,所以 IPv6-only Pod 的 <code>localhost</code> 只回 <code>::1</code>。</li>
+    <li><strong>各個 client:</strong>Python <code>socket.getaddrinfo()</code> 預設 <code>flags=0</code>,兩個都拿到;gRPC pick_first 會逐一嘗試;有的工具只試第一個。</li>
+  </ol>
+
+  <h2>5. Pod 的 DNS 設定</h2>
+
+  <p class="q"><code>search</code> 和 <code>ndots:5</code> 怎麼影響查詢?</p>
+<pre><code>search default.svc.cluster.local svc.cluster.local cluster.local &lt;node 繼承的網域&gt;
+options ndots:5</code></pre>
+  <p>名稱裡的點少於 5 個,resolver 會先把 search 網域一個一個接上去試。<code>xxx-head-svc.ns.svc.cluster.local</code> 只有 4 個點,所以會先試 <code>....cluster.local.&lt;CI 主機網域&gt;</code>,被 CoreDNS 轉送到外部 DNS,在 IPv6-only kind 裡很可能 timeout。</p>
+  <ul>
+    <li>kubelet 在<strong>建立每個 Pod 時</strong>把 node 的 search 網域接到 cluster 網域後面。</li>
+    <li>CoreDNS 用 <code>dnsPolicy: Default</code>,繼承 node 的 resolv.conf 當 upstream;轉送時不套用 search。</li>
+    <li>所以在 cluster 建好後才改 node 的 resolv.conf,真正生效的是之後建立的 Pod。</li>
+  </ul>
+
+  <p class="q">為什麼改 resolv.conf 要寫成這樣?</p>
+<pre><code>docker exec kind-control-plane sh -c 'grep -v "^search " /etc/resolv.conf &gt; /tmp/resolv.conf &amp;&amp; cat /tmp/resolv.conf &gt; /etc/resolv.conf'</code></pre>
+  <ul>
+    <li><code>sh -c</code>:<code>docker exec</code> 不經過 shell,<code>&gt;</code>、<code>&amp;&amp;</code> 要在 container 裡由 shell 處理。</li>
+    <li>先寫暫存檔:<code>grep ... &gt; 同一個檔</code> 會先被清空再讀。</li>
+    <li>用 <code>cat &gt;</code> 而不是 <code>sed -i</code> / <code>mv</code>:Docker 的 <code>/etc/resolv.conf</code> 是 bind mount,只能改內容,不能取代檔案(<code>Device or resource busy</code>)。</li>
+  </ul>
+
+  <h2>6. Kubernetes command/args、bash 與 eval</h2>
+
+  <p class="q">args 會交給 bash 執行嗎?</p>
+  <p>不會自動。kubelet 把 <code>command + args</code> 直接接起來 exec,不經過 shell,唯一例外是展開 <code>$(VAR)</code>。KubeRay 把 <code>command</code> 設成 <code>["/bin/bash", "-c", "--"]</code>(<code>util.go</code> <code>GetContainerCommand</code>),<code>args</code> 是一整串字串,所以才是 bash 在解析。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>寫法</th><th>誰展開</th><th>時機</th><th>懂 shell 語法嗎</th></tr></thead>
+      <tbody>
+        <tr><td><code>$(VAR)</code> 在 command / args / env value</td><td>kubelet</td><td>container 啟動前</td><td>不懂,只做替換;只能引用同 container 裡列在前面的 env</td></tr>
+        <tr><td><code>$VAR</code> 在 <code>bash -c</code> 的字串裡</td><td>bash</td><td>解析 script 時</td><td>懂</td></tr>
+        <tr><td>Go 字串裡的 <code>"$VAR"</code></td><td>沒人</td><td>—</td><td>Go 沒有內插,<code>$</code> 就是字元</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="q">為什麼 <code>bash -c 'eval if true; then echo yes; fi'</code> 會失敗?</p>
+  <p>bash 會<strong>先解析整段、確認語法正確才執行</strong>。兩條規則:<code>;</code> 切斷指令;<code>if</code> / <code>then</code> / <code>fi</code> 只有在指令開頭才是關鍵字。所以第一個指令是 <code>eval if true</code>(<code>if</code> 只是參數),接著 <code>then</code> 前面沒有 <code>if</code>,語法錯誤,一行都不會跑。<code>eval echo a; echo b</code> 就沒問題,因為沒有跨越 <code>;</code> 的結構。</p>
+
+  <p class="q">那 <code>bash -c '$X'</code>(不加引號)為什麼能跑?</p>
+  <p>解析時只看到 <code>$X</code> 一個字,語法沒問題。執行時才展開,展開的結果<strong>不會再被當成語法</strong>,只會按空白切字(word splitting)並做檔名比對(glob)。第一個字 <code>eval</code> 是 bash 內建指令,它把收到的字接回字串,再當成新的程式碼解析一次,這次 <code>if</code> 在開頭,所以成立。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>使用方式</th><th>值是 <code>eval if …; fi; cmd</code></th><th>原因</th></tr></thead>
+      <tbody>
+        <tr><td><code>$VAR</code></td><td>✅</td><td>eval 重新解析</td></tr>
+        <tr><td><code>"$VAR"</code></td><td>❌ command not found</td><td>整串當成一個指令名稱</td></tr>
+        <tr><td><code>exec $VAR</code></td><td>❌ <code>exec: eval: not found</code></td><td><code>eval</code> 是 builtin,不是執行檔</td></tr>
+        <tr><td><code>bash -c "$VAR"</code> / <code>eval "$VAR"</code></td><td>❌ 語法錯誤</td><td>程式碼本身被解析,<code>eval</code> 吃掉 <code>if</code></td></tr>
+        <tr><td>Python <code>shlex.split</code> + exec</td><td>❌ <code>No such file: 'eval'</code></td><td>同 exec</td></tr>
+        <tr><td><code>sh -c</code>(dash)</td><td>❌ 預期 <code>[[: not found</code></td><td><code>[[</code> 是 bash 語法(macOS 的 sh 是 bash,測不出來)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <ul>
+      <li><strong>export:</strong>沒有 export 的 shell 變數,子 process(<code>bash -c</code>)看不到。<code>X=... cmd</code> 同一行則是只對那條指令設環境變數。Pod 的 <code>env</code> 本來就是環境變數。</li>
+      <li><strong>外層引號:</strong>在自己終端機測試時,<code>bash -c '$X'</code> 的單引號是讓外層 shell 不要先展開,讓內層 bash 展開。</li>
+      <li><strong>glob 邊界情況:</strong>不加引號展開時 <code>*:*</code> 會先比對工作目錄檔名,有 <code>a:b</code> 這種檔案時判斷式會被改掉。</li>
+      <li><strong>zsh 小坑:</strong>在 zsh 裡用 <code>path</code> 當迴圈變數會蓋掉 <code>PATH</code>(zsh 會同步兩者),指令全部找不到。</li>
+    </ul>
+  </div>
+
+  <h2>7. Ray 怎麼偵測 node IP</h2>
+  <p>不是去列舉網卡(沒有 <code>getifaddrs</code> / netlink),而是問 kernel 路由表:</p>
+<pre><code>boost::asio::ip::udp::socket socket(net_service, protocol);
+socket.connect(ep);   // UDP connect 不送封包,只查路由、決定來源位址
+auto local_addr = socket.local_endpoint().address();   // getsockname()</code></pre>
+  <ul>
+    <li>等同 <code>ip route get 8.8.8.8</code> 看到的來源位址。</li>
+    <li>head 先試 IPv4 的 <code>8.8.8.8:53</code>,再試 IPv6;worker 依 head 位址的 family。</li>
+    <li>都失敗時解析自己的 hostname(<code>/etc/hosts</code>),再失敗回傳 <code>127.0.0.1</code>。</li>
+    <li>多網卡時只會拿到預設路由那張;有 IPv4 link-local 介面時會選到 <code>169.254.x.x</code>。<code>status.podIP</code> 則是 CNI 分配的主要位址,比較可靠。</li>
+  </ul>
+
+  <h2>8. Service 的 <code>spec.ipFamilies</code></h2>
+  <p>Kubernetes 支援 dual-stack 時加的欄位(v1.20 重新設計,v1.23 GA),由 API server 在建立 Service 時自動填入。邏輯在 <code>pkg/registry/core/service/storage/alloc.go</code> 的 <code>initIPFamilyFields</code>。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Service 類型</th><th>預設 ipFamilyPolicy</th><th>ipFamilies</th></tr></thead>
+      <tbody>
+        <tr><td>一般 ClusterIP</td><td><code>SingleStack</code></td><td>cluster 預設 family</td></tr>
+        <tr><td>headless + 有 selector(KubeRay head / worker Service)</td><td><code>SingleStack</code></td><td>同上</td></tr>
+        <tr><td>headless + 沒有 selector(特例)</td><td><code>RequireDualStack</code></td><td>預設 family 再加另一個</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>從 API 讀的值描述的是目標 cluster,不受 operator 跑在哪裡影響。KubeRay 的 CRD 裡看得到 <code>ipFamilies</code>,只是因為內嵌了 Service 定義讓使用者自訂;Go 程式碼沒讀過它。</p>
+
+  <h2>9. Operator 跑在哪裡、怎麼 debug</h2>
+
+  <p class="q">operator 可以跑在 cluster 外面?</p>
+  <p>可以。operator 只是呼叫 API server「幫我建這個 Pod」,Pod 實際放在哪個 node、拿什麼 IP 由 scheduler、kubelet、CNI 決定。所以 Ray Pod 一定在 operator 管理的 cluster 裡,但 operator 程式本身可以在同 cluster 的某個 node、本機、或另一個管理 cluster。IP family 是整個 cluster 的設定,不會因為 node 不同而不同。</p>
+  <p>用 operator 自己的 IP 推斷 family 會在這些情況出錯:本機開發、<code>hostNetwork</code>(拿到 node IP)、dual-stack、不同 namespace 用不同 IP pool。</p>
+
+  <p class="q">本機跑 operator(<code>ray-operator/DEVELOPMENT.md:130</code>)</p>
+<pre><code>kind create cluster --image=kindest/node:v1.29.0
+make -C ray-operator install     # -C = 先 cd 到該目錄;安裝 CRD,讓 API server 認識 RayCluster
+make -C ray-operator build       # 編譯成 ray-operator/bin/manager
+./ray-operator/bin/manager -leader-election-namespace default -use-kubernetes-proxy</code></pre>
+  <ul>
+    <li><code>make install</code> 只裝 CRD;<code>make deploy</code> 才把 operator 以 Deployment 部署進 cluster。</li>
+    <li><code>-use-kubernetes-proxy</code>:本機連不到 Pod IP、解析不了 <code>*.svc.cluster.local</code>,改由 API server 轉送到 dashboard / Serve(<code>GetRayHttpProxyClientFunc</code> 的分支)。</li>
+    <li><code>-leader-election-namespace</code>:在 cluster 外無法從自己的 Pod 得知 namespace。</li>
+  </ul>
+
+  <p class="q">為什麼在 cluster 外才方便用 IDE 設中斷點?</p>
+  <p>operator 變成本機的普通 process,IDE 用 Delve 直接啟動控制;改完程式碼重跑即可。放在 cluster 裡要 debug build、裝 Delve、port-forward,而且暫停時 liveness probe 會讓 Kubernetes 把 container 殺掉重啟。</p>
+<pre><code>{
+  "name": "KubeRay operator",
+  "type": "go",
+  "request": "launch",
+  "mode": "debug",
+  "program": "${workspaceFolder}/ray-operator/main.go",
+  "args": ["-leader-election-namespace", "default", "-use-kubernetes-proxy"]
+}</code></pre>
+
+  <h2>10. Code review 心得</h2>
+  <ul>
+    <li><strong>事實自己先確認,意見留給作者討論。</strong>行號、哪條路徑會走到,要自己查;設計偏好用提問的方式。</li>
+    <li><strong>範圍要講準。</strong>「使用者會看到錯的指令」太廣,預設路徑其實有完整 log;限定在 overwrite 路徑,作者就無法用 L944 反駁。「incomplete」比「incorrect」精確。</li>
+    <li><strong>區分機制上會壞和實際上有人會壞。</strong>用 <code>gh search code "KUBERAY_GEN_RAY_START_CMD"</code> 找真實用法,把設計疑慮變成有證據的 breaking change。GitHub 只看得到公開 repo,實際影響只會更大。</li>
+    <li><strong>附最小重現。</strong>一行指令、同一行設變數(或 export),作者一秒就能驗證。</li>
+    <li><strong>測試都過 ≠ 沒有副作用。</strong>測試只驗證它測到的東西。</li>
+    <li><strong>一次不要提太多。</strong>先提最重要的,等有結論再提其他;作者已處理的 thread 要回覆。</li>
+    <li><strong>檢查 PR 描述是否跟著 commit 更新。</strong>一句話本身沒錯,但放在「Why」底下卻已不是 PR 做的事,一樣會誤導。</li>
+    <li><strong>用 commit 歷史和 CI 狀態還原脈絡。</strong><code>gh api repos/.../commits/&lt;sha&gt;/statuses</code> 看每個 commit 的 CI,一眼看出是哪個改動讓 CI 轉綠。</li>
+  </ul>
+
+  <h2>11. 延伸閱讀</h2>
+  <ul>
+    <li>Kubernetes 文件「DNS for Services and Pods」:ndots、search、dnsPolicy。</li>
+    <li>Kubernetes 文件「IPv4/IPv6 dual-stack」:ipFamilies、ipFamilyPolicy。</li>
+    <li><em>Beej's Guide to Network Programming</em>:socket、IPv4/IPv6、<code>getaddrinfo</code>。</li>
+    <li>自己動手:<code>ip addr</code>、<code>ip route get 8.8.8.8</code>、<code>ss -tlnp</code>、<code>cat /etc/hosts /etc/resolv.conf</code>(在 Pod 裡)。</li>
+  </ul>
+</main>
+</body>
+</html>
