@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KubeRay Notes</title>
+<style>
+  :root {
+    --bg: #fafaf9; --fg: #1c1917; --muted: #78716c; --card: #ffffff; --border: #e7e5e4; --accent: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0c0a09; --fg: #e7e5e4; --muted: #a8a29e; --card: #1c1917; --border: #292524; --accent: #60a5fa; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  main { max-width: 680px; margin: 0 auto; padding: 48px 16px; }
+  h1 { font-size: 1.75rem; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 32px; }
+  ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+  a {
+    display: block; padding: 16px 18px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--card); color: inherit; text-decoration: none;
+  }
+  a:hover { border-color: var(--accent); }
+  .title { font-weight: 600; }
+  .date { color: var(--muted); font-size: 0.875rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>KubeRay Notes</h1>
+  <p class="sub">Notes from reading KubeRay code and reviewing PRs.</p>
+  <ul>
+    <li><a href="kuberay-pr5215-ipv6-review-notes.html"><div class="title">PR 5215 IPv6 Review</div><div class="date">2026-09-27</div></a></li>
+    <li><a href="kuberay-ipv6-networking-shell-notes.html"><div class="title">IPv6 Networking Shell Notes</div><div class="date">2026-09-27</div></a></li>
+    <li><a href="kuberay-resourceversion-guard-notes.html"><div class="title">resourceVersion Guard Notes</div><div class="date">2026-09-23</div></a></li>
+    <li><a href="kuberay-finalizer-reconcile-notes.html"><div class="title">Finalizer Reconcile Notes</div><div class="date">2026-09-23</div></a></li>
+    <li><a href="kuberay-finalizers.html"><div class="title">KubeRay Finalizer Deletion Flow</div><div class="date">2026-09-16</div></a></li>
+  </ul>
+</main>
+</body>
+</html>
