@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Worker Group Deadlock Notes</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">KubeRay issue #5364 · worker group reconciliation</p>
+  <h1>Worker Group Deadlock Notes</h1>
+  <p class="meta">整理自 2026-10-04 的問答 · issue <a href="https://github.com/ray-project/kuberay/issues/5364">#5364</a> · branch <code>fix/issue-5364-worker-group-deadlock</code></p>
+
+  <div class="verdict">
+    <p><strong>一句話:</strong><code>reconcilePods</code> 依固定順序逐一處理 worker group,任何一個 group 建立 Pod 失敗就直接 <code>return</code>,整個迴圈結束。namespace quota 滿了的時候,排在前面的 group 每一輪都失敗,排在後面的 group 永遠輪不到刪除 <code>WorkersToDelete</code>,而那些 Pod 正是佔住 quota 的元兇。</p>
+    <ul>
+      <li><strong>修法:</strong>建立失敗時把錯誤收集起來(<code>errors.Join</code>)、<code>break</code> 跳出該 group 的建立迴圈、繼續下一個 group,迴圈結束後再回傳。</li>
+      <li><strong>範圍:</strong>只處理「建立 Pod 失敗」這一類錯誤,包含 L1202、L1210、multi-host 的 L1418 → L1098 三條路徑。</li>
+      <li><strong>測試:</strong><code>TestReconcile_CreateFailureDoesNotBlockOtherWorkerGroups</code> 已寫好,目前如預期失敗。</li>
+    </ul>
+  </div>
+
+  <h2>1. 從 L1210 開始追:為什麼會卡死</h2>
+
+  <p class="q">L1210 做了什麼?</p>
+  <p>worker 迴圈從 <code>raycluster_controller.go:1069</code> 開始,依 <code>Spec.WorkerGroupSpecs</code> 的順序跑。每個 group 先刪 <code>WorkersToDelete</code>(L1135),再建立缺少的 Pod(L1182)。建立失敗時:</p>
+<pre><code>for i := range diff {
+    if err := r.createWorkerPod(ctx, *instance, *worker.DeepCopy()); err != nil {
+        return errstd.Join(utils.ErrFailedCreateWorkerPod, err)   // L1210
+    }
+}</code></pre>
+  <p>這個 <code>return</code> 離開的是整個 <code>reconcilePods</code>,不只是這個 group。</p>
+
+  <p class="q">卡死的過程</p>
+  <ol>
+    <li>Group A(排前面)<code>diff &gt; 0</code>,建立 Pod 被 quota 拒絕,L1210 <code>return</code>。</li>
+    <li>錯誤傳回 <code>Reconcile</code>(L373),停止後續 reconcile 函式、寫入 <code>ReplicaFailure</code> status、requeue。</li>
+    <li>下一輪順序一樣、quota 還是滿的,group A 又失敗。Group B 永遠到不了自己的 <code>WorkersToDelete</code>。</li>
+  </ol>
+  <p>卡死需要兩個條件同時成立:<strong>順序固定</strong>,而且<strong>錯誤不會自己消失</strong>。錯誤不會消失,是因為 group B 刪不掉的 Pod 就是佔住 quota 的那些。</p>
+  <div class="note">
+    <p>只有失敗的 group 排在有待刪 Pod 的 group <strong>前面</strong>時才會發生。把 spec 裡的順序對調就重現不出來,寫測試時要注意。</p>
+  </div>
+
+  <h2>2. L1210 不是唯一的出口</h2>
+
+  <p class="q">迴圈裡還有哪些地方會提早 return?</p>
+  <p>同樣的「在單一 group 裡 <code>return</code>」共有 9 處,另外 <code>reconcileMultiHostWorkerGroup</code> 裡還有 L1418:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>行號</th><th>情境</th><th>性質</th></tr></thead>
+      <tbody>
+        <tr><td>L1080</td><td>List Pod 失敗</td><td>整個 cluster 層級,停下來是對的</td></tr>
+        <tr><td>L1088</td><td>suspended group 刪 Pod 失敗</td><td>刪除失敗</td></tr>
+        <tr><td>L1098</td><td><code>reconcileMultiHostWorkerGroup</code> 回傳錯誤(含 L1418 建立失敗)</td><td><strong>建立失敗,要修</strong></td></tr>
+        <tr><td>L1118</td><td>刪除 unhealthy Pod 失敗</td><td>刪除失敗</td></tr>
+        <tr><td>L1129</td><td>刪除 unhealthy Pod <em>成功</em> 後也 return</td><td>刻意設計,下一輪會自己好</td></tr>
+        <tr><td>L1144</td><td>刪除 <code>WorkersToDelete</code> 失敗</td><td>刪除失敗</td></tr>
+        <tr><td>L1188</td><td>mTLS secret 還沒準備好</td><td>整個 cluster 層級,停下來是對的</td></tr>
+        <tr><td>L1202</td><td>建立 Pod 失敗(<code>RayMultiHostIndexing</code> 開啟)</td><td><strong>建立失敗,要修</strong></td></tr>
+        <tr><td>L1210</td><td>建立 Pod 失敗(gate 關閉)</td><td><strong>建立失敗,要修</strong></td></tr>
+        <tr><td>L1245</td><td>隨機刪除 Pod 失敗</td><td>刪除失敗</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>現有程式碼的隱含假設是「任何一個 group 出錯都代表整個 cluster 有問題,所以整輪停下來」。這對 List 和 mTLS 成立,對 quota 拒絕這種單一 group 的錯誤不成立。</p>
+
+  <p class="q">改成收集錯誤,status 會不會壞掉?</p>
+  <p>不會。<code>RayClusterReplicaFailureReason</code>(<code>utils/constant.go:437</code>)用的是 <code>errors.As</code>,對 <code>errors.Join</code> 包起來的多個錯誤也有效,會回報第一個錯誤的 reason。</p>
+
+  <h2>3. 要修整個問題,還是只修 issue 的範圍?</h2>
+
+  <p class="q">issue 有明確範圍,要全部修嗎?</p>
+  <p>結論:<strong>照 issue 的範圍修,但範圍定義成「一個 group 建立 Pod 失敗,不應該擋住其他 group」</strong>。這比只修 L1210 多一點,但不是 9 個出口全修。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>位置</th><th>決定</th><th>理由</th></tr></thead>
+      <tbody>
+        <tr><td>L1210</td><td>修</td><td>issue 指的那一行</td></tr>
+        <tr><td>L1202</td><td>修</td><td>同樣的建立,只是走 <code>RayMultiHostIndexing</code> 分支;而且這個 gate 預設開啟(見第 4 節)</td></tr>
+        <tr><td>L1418 → L1098</td><td>修</td><td>multi-host group 的建立,同樣被 quota 拒絕、同樣卡死</td></tr>
+        <tr><td>刪除失敗(L1088/1118/1144/1245)</td><td>不修,寫在 PR 描述</td><td>quota 不會擋刪除;webhook 或 RBAC 問題理論上會,但沒有回報過、是另一個 issue</td></tr>
+        <tr><td>L1129</td><td>不修</td><td>刻意的;下一輪該 group 的 expectation 未滿足,L1070 會跳過它,其他 group 照常跑</td></tr>
+        <tr><td>L1080、L1188</td><td>不修</td><td>真的是整個 cluster 層級</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>為什麼不全修:KubeRay maintainer 通常比較快合併聚焦的 PR。改變所有錯誤路徑的行為,需要另外討論「哪些錯誤應該停下整輪」。刪除失敗的情況可以在這個 PR 合併後另開 follow-up issue,跟 #5210 一樣的做法。</p>
+
+  <h2>4. <code>RayMultiHostIndexing</code> 是什麼</h2>
+
+  <p class="q">這個 feature gate 做什麼?</p>
+  <p>定義在 <code>pkg/features/features.go:35</code>,替 worker Pod 加上穩定的 index label:</p>
+  <ul>
+    <li><code>ray.io/worker-group-replica-index</code>:這個 Pod 屬於 group 裡第幾個 replica(0 到 replicas-1)。</li>
+    <li><code>ray.io/worker-group-replica-name</code>、<code>ray.io/replica-host-index</code>:一個 replica 由多個 Pod 組成時(<code>NumOfHosts &gt; 1</code>),用來把同一個 replica 的所有 host 當成一個單位管理。</li>
+  </ul>
+  <p>所以迴圈裡有三條建立路徑:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>條件</th><th>路徑</th><th>建立失敗的位置</th></tr></thead>
+      <tbody>
+        <tr><td>gate 開、<code>NumOfHosts &gt; 1</code></td><td>整個 group 交給 <code>reconcileMultiHostWorkerGroup</code>(L1096)</td><td>L1418,錯誤從 L1098 出來</td></tr>
+        <tr><td>gate 開、<code>NumOfHosts == 1</code></td><td>一般 group,但新 Pod 拿最小的空 replica index(L1191–1204)</td><td>L1202</td></tr>
+        <tr><td>gate 關</td><td>一般建立(L1206–1212)</td><td>L1210</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <p><strong>這個 gate 預設是 <code>true</code></strong>(Beta,<code>features.go:124</code>)。所以回報者在預設安裝的 1.7.1 上,single-host group 很可能走的是 <strong>L1202</strong>,不是 L1210。issue 連結的是看起來最明顯的那一行,實際跑的可能是另一行。只修 L1210 很可能修不到回報者的 bug。</p>
+  </div>
+
+  <p class="q">修法真的只有幾行嗎?</p>
+  <p>對,大概是這樣:</p>
+<pre><code>var errs []error
+for _, worker := range instance.Spec.WorkerGroupSpecs {
+    ...
+    if isRayMultiHostIndexing {
+        if err := r.reconcileMultiHostWorkerGroup(...); err != nil {
+            if !errors.Is(err, utils.ErrFailedCreateWorkerPod) { return err }
+            errs = append(errs, err)
+        }
+        continue
+    }
+    ...
+    for i := range diff {
+        if err := r.createWorkerPod(...); err != nil {
+            errs = append(errs, errstd.Join(utils.ErrFailedCreateWorkerPod, err))
+            break // stop creating for this group, move on to the next
+        }
+    }
+    ...
+}
+return errstd.Join(errs...) // nil if errs is empty</code></pre>
+  <ul>
+    <li><strong>內層用 <code>break</code> 不是 <code>continue</code></strong>:一個建立被 quota 拒絕,剩下的也會被拒。每輪重試 <code>diff</code> 次只會灌爆 API server 和 event。</li>
+    <li><strong>L1098 的 <code>errors.Is</code></strong>:只讓 multi-host 路徑的建立失敗繼續往下,其他錯誤(例如刪除失敗)維持現在整輪停下的行為。</li>
+    <li><code>diff &gt; 0</code> 分支是迴圈主體的最後一段,<code>break</code> 出來就會接到下一個 group。</li>
+  </ul>
+
+  <h2>5. reconcile 怎麼被觸發</h2>
+
+  <p class="q">有些 <code>r.Update</code> 不會觸發 reconcile,修好之後 loop 怎麼知道要再跑?</p>
+  <p>先看 <code>SetupWithManager</code>(<code>raycluster_controller.go:1937</code>):</p>
+<pre><code>For(&amp;rayv1.RayCluster{}, predicate.Or(
+    GenerationChangedPredicate{},  // spec changes
+    LabelChangedPredicate{},
+    AnnotationChangedPredicate{})).
+Owns(&amp;corev1.Pod{}) // + Service, Secret, PVC</code></pre>
+  <ul>
+    <li><strong>不會觸發:</strong>只改 status(<code>r.Status().Update</code>)。<code>metadata.generation</code> 不會變,被 <code>GenerationChangedPredicate</code> 過濾掉。這是刻意的,否則 controller 自己寫 status 會一直觸發自己。</li>
+    <li><strong>會觸發:</strong>spec 改變,或這個 cluster 擁有的 Pod 被新增、更新、刪除。</li>
+  </ul>
+
+  <p class="q">套到 issue 的情境</p>
+  <ol>
+    <li>流量下降時,autoscaler <strong>patch spec</strong>(降低 <code>replicas</code>、把名字加進 <code>WorkersToDelete</code>)。generation 改變,reconcile 立刻跑。</li>
+    <li>這次 reconcile 有跑,跑到 group A 建立失敗就 return,group B 的刪除沒有執行。</li>
+  </ol>
+  <p><strong>卡死從來不是通知的問題</strong>:reconcile 有被觸發、也有跑,只是在到 group B 之前就結束了。所以修法不需要新增任何觸發機制。</p>
+
+  <p class="q">出錯時的 requeue</p>
+  <p>L403 回傳 <code>ctrl.Result{RequeueAfter: DefaultRequeueDuration}, err</code>。在 controller-runtime v0.25,<strong><code>err != nil</code> 時 <code>RequeueAfter</code> 會被忽略</strong>(<code>internal/controller/controller.go:494</code>,還會記一行 warning),改走 <code>AddRateLimited</code>。預設 rate limiter 是每個 item 指數退避,約 5ms 起跳、加倍到上限 1000s,成功 reconcile 一次才會歸零。</p>
+  <p>所以 group A 一直被 quota 拒絕時,錯誤造成的重試會越來越稀疏,最久約 16 分鐘一次。但 watch event 還是會立刻處理,因為一般的 <code>Add</code> 不經過 rate limiter。</p>
+
+  <p class="q">修好之後的流程</p>
+  <ol>
+    <li>autoscaler patch spec → reconcile → group A 建立失敗,記下錯誤、<code>break</code> → group B 刪掉 <code>WorkersToDelete</code> 的 Pod → 回傳錯誤。</li>
+    <li>這些刪除是<strong>擁有的 Pod</strong> 的 event,會觸發新一輪 reconcile,同時滿足 group B 的 delete expectation。</li>
+    <li>新一輪裡 group A 重試建立。這時 quota 有空位了,可以成功。</li>
+  </ol>
+  <p>修好之後會自己恢復:group B 的刪除產生的 event,正好讓 group A 重試。</p>
+  <div class="note">
+    <p><strong>仍存在的缺口(不在範圍內):</strong>如果 quota 是因為<strong>這個 RayCluster 不擁有的東西</strong>而釋放(同 namespace 其他 workload 縮容,或 admin 調高 <code>ResourceQuota</code>),這個 cluster 收不到任何 event,group A 只能等退避計時器,最久約 1000s。這是現有的延遲問題,不屬於 #5364,在 PR 裡列為已知限制即可。</p>
+  </div>
+
+  <h2>6. multi-host 是什麼</h2>
+
+  <p class="q">multi-host 的意思?</p>
+  <p>一個 worker <strong>replica</strong> 由多個 Pod 組成,每個 Pod 在不同機器上,而且只能一起運作。少任何一個,這個 replica 就沒用。</p>
+  <p>主要是為了 TPU。像 <code>v4-16</code> 這種 TPU slice 實體上分布在好幾台 VM(「host」),每台有一部分 chip。JAX/XLA 要所有 host 都在才能啟動,4 台裡有 3 台什麼也做不了。KubeRay 用 worker group 的 <code>NumOfHosts</code> 描述:</p>
+<pre><code>workerGroupSpecs:
+- groupName: tpu-group
+  replicas: 2       # 2 slices
+  numOfHosts: 4     # each slice = 4 pods</code></pre>
+  <p>總共 <code>replicas × numOfHosts</code> = 8 個 Pod,但 autoscaler 和 controller 把它當成 <strong>2 個單位</strong>,不是 8 個獨立 worker。</p>
+
+  <p class="q">gate 開啟後的 label 和行為</p>
+<pre><code>ray.io/worker-group-replica-name:  tpu-group-abc12   # which slice
+ray.io/worker-group-replica-index: 0                 # slice number
+ray.io/replica-host-index:         2                 # host 2 of 4</code></pre>
+  <p>有了這些 label,<code>reconcileMultiHostWorkerGroup</code>(L1286)可以整個 replica 一起管理:</p>
+  <ol>
+    <li>replica 裡任何一個 host 掛掉,<strong>整個 replica 刪掉</strong>,因為不完整的 slice 沒用。</li>
+    <li>autoscaler 刪除 worker 時,刪掉那個 replica 的所有 host。</li>
+    <li>以完整 replica 為單位擴縮容:一次建立 <code>NumOfHosts</code> 個 Pod。</li>
+  </ol>
+
+  <p class="q">跟 #5364 的關係</p>
+  <p>quota 拒絕對 multi-host group 傷害更大。建立一個 replica 要連續 <code>NumOfHosts</code> 次建立,quota 可能放行 2 個、拒絕第 3 個,留下一個佔著 quota 卻什麼都不做的不完整 replica。下一輪規則 1 應該要把它刪掉,但如果排前面的 multi-host group 一直失敗,L1098 同樣的提早 return 會讓 controller 到不了後面 group 的清理。</p>
+
+  <h2>7. 先寫失敗的測試</h2>
+
+  <p class="cap">ray-operator/controllers/ray/raycluster_controller_unit_test.go · TestReconcile_CreateFailureDoesNotBlockOtherWorkerGroups</p>
+  <p>沿用共用的 <code>setupTest</code> fixture:</p>
+  <ul>
+    <li><strong>Group A</strong>(<code>group-a</code>)排第一個,要 2 個 replica、目前沒有 Pod,所以 controller 會嘗試建立。</li>
+    <li><strong>Group B</strong>(<code>small-group</code>)排第二個,有 pod1–5,autoscaler 要求刪除 <code>pod3</code>、<code>pod4</code>。</li>
+    <li>fake client 的 interceptor 讓每次 <code>Create</code> 都回傳 <code>Forbidden</code>「exceeded quota」,模擬真的 ResourceQuota。</li>
+    <li>跑兩個 subtest:<code>RayMultiHostIndexing</code> 開與關,涵蓋 L1202 和 L1210。</li>
+  </ul>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>斷言</th><th>目前結果</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>ErrorIs(err, ErrFailedCreateWorkerPod)</code></td><td>通過</td><td>修好後 <code>ReplicaFailure</code> status 仍要被設定</td></tr>
+        <tr><td><code>createAttempts == 1</code></td><td>通過</td><td>守住 <code>break</code>:不要對滿的 quota 重試每個缺少的 Pod</td></tr>
+        <tr><td>group B 剩下 <code>pod1, pod2, pod5</code></td><td><strong>失敗</strong></td><td><code>pod3</code>、<code>pod4</code> 還在,這就是 bug</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>前兩個現在就會過,是用來防止修過頭。只有第三個呈現 bug,兩個 subtest 都失敗在 <code>extra elements: pod3, pod4</code>。</p>
+<pre><code>go test ./controllers/ray/ -run TestReconcile_CreateFailureDoesNotBlockOtherWorkerGroups -count=1</code></pre>
+
+  <h2>8. 待辦</h2>
+  <div class="note">
+    <ul>
+      <li>補第三個 subtest:multi-host 路徑(L1418 → L1098),需要 <code>NumOfHosts: 2</code> 的 group 和帶正確 label 的 Pod。最好在修之前加,讓三條路徑都先紅燈。</li>
+      <li>實作修法:L1202、L1210 改成收集錯誤 + <code>break</code>;L1098 加 <code>errors.Is</code> 判斷;迴圈結束回傳 <code>errstd.Join(errs...)</code>。</li>
+      <li>PR 描述:說明範圍只處理建立失敗,列出刪除失敗和「非 owned 資源釋放 quota 時等退避」兩個已知限制。</li>
+      <li>PR 合併後再開 follow-up issue 追蹤刪除失敗的情況。</li>
+    </ul>
+  </div>
+</main>
+</body>
+</html>
