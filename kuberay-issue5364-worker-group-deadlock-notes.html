@@ -95,6 +95,31 @@
     h1 { font-size: 1.6rem; }
     body { padding-block: 28px 56px; }
   }
+
+  .slots { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 4px; margin: 6px 0 4px; }
+  .slot { font-family: var(--font-mono); font-size: 0.78rem; text-align: center; padding: 8px 0; border-radius: 4px; border: 1px solid var(--rule); background: var(--surface); }
+  .slot.a { background: var(--accent-soft); border-color: var(--accent); }
+  .slot.b { background: var(--code-bg); border-color: var(--muted); }
+  .slot.del { background: var(--warn-soft); border: 1px dashed var(--warn); color: var(--warn); }
+  .slot.empty { border-style: dashed; color: var(--muted); }
+  .legend { font-size: 0.84rem; color: var(--muted); margin: 0 0 16px; }
+  .legend span { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin: 0 4px 0 10px; border: 1px solid var(--rule); }
+  .legend span.a { background: var(--accent-soft); border-color: var(--accent); }
+  .legend span.b { background: var(--code-bg); border-color: var(--muted); }
+  .legend span.del { background: var(--warn-soft); border: 1px dashed var(--warn); }
+  .flow { display: grid; gap: 6px; margin: 8px 0 18px; }
+  .round { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 6px; }
+  .step { border: 1px solid var(--rule); border-left-width: 4px; background: var(--surface); border-radius: 6px; padding: 8px 14px; font-size: 0.92rem; }
+  .step.fail { border-left-color: var(--warn); }
+  .step.ok { border-left-color: var(--accent); }
+  .step.skip { border-style: dashed; color: var(--muted); }
+  .step b { font-family: var(--font-mono); font-weight: 500; }
+  .arrow { text-align: center; color: var(--muted); font-size: 0.84rem; line-height: 1.4; }
+  .ste { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 16px 20px; margin: 12px 0 16px; }
+  .ste h4 { font-size: 0.95rem; margin: 14px 0 6px; }
+  .ste h4:first-child { margin-top: 0; }
+  .ste ol { margin-bottom: 8px; }
+  @media (max-width: 480px) { .slot { font-size: 0.66rem; padding: 6px 0; } }
 </style>
 </head>
 <body>
@@ -133,6 +158,154 @@
   <div class="note">
     <p>只有失敗的 group 排在有待刪 Pod 的 group <strong>前面</strong>時才會發生。把 spec 裡的順序對調就重現不出來,寫測試時要注意。</p>
   </div>
+
+  <p class="q">用數字走一遍:group A 沒被建立?group B 有被建立?</p>
+  <p>group 本身沒有「建立」這回事,它只是 spec 裡的一筆設定,A 和 B 一直都在。會被建立或刪除的是 group 底下的 <strong>Pod</strong>。issue 的 Group 1 就是 group A,Group 2 就是 group B。假設 namespace 的 ResourceQuota 是 <code>pods: "10"</code>(先不算 head):</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>時間</th><th>發生什麼</th><th>A(實際 / 想要)</th><th>B(實際 / 想要)</th><th>quota</th></tr></thead>
+      <tbody>
+        <tr><td>t0</td><td>平常</td><td>1 / 1</td><td>1 / 1</td><td>2 / 10</td></tr>
+        <tr><td>t1</td><td>burst 開始,autoscaler 把兩個 group 都調高</td><td>4 / 4</td><td>4 / 4</td><td>8 / 10</td></tr>
+        <tr><td>t2</td><td>burst 持續,A 想要更多</td><td><strong>6</strong> / 8</td><td>4 / 4</td><td><strong>10 / 10 滿</strong></td></tr>
+        <tr><td>t3</td><td>burst 結束</td><td>6 / 8</td><td>4 / <strong>1</strong>,<code>workersToDelete</code> 列 3 個</td><td>10 / 10</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li><strong>A</strong>:Pod 建了一部分(6 個),<strong>還差 2 個建不起來</strong>。pending 的工作還沒做完,所以 autoscaler 維持 A 想要 8 個。</li>
+    <li><strong>B</strong>:Pod 在 quota 滿之前就建好了,現在<strong>多了 3 個該刪卻刪不掉</strong>。</li>
+    <li><strong>卡死的關鍵</strong>:B 那 3 個刪不掉的 Pod,剛好佔住 A 需要的 quota。</li>
+  </ul>
+
+  <p class="cap">圖一 · t3 時 quota 被誰佔住</p>
+  <div class="slots" role="img" aria-label="10 格 quota 全滿:a1 到 a6 屬於 group A,b1 到 b4 屬於 group B,其中 b2 到 b4 在 workersToDelete">
+    <div class="slot a">a1</div><div class="slot a">a2</div><div class="slot a">a3</div><div class="slot a">a4</div><div class="slot a">a5</div><div class="slot a">a6</div>
+    <div class="slot b">b1</div><div class="slot del">b2</div><div class="slot del">b3</div><div class="slot del">b4</div>
+  </div>
+  <p class="legend"><span class="a"></span>group A<span class="b"></span>group B<span class="del"></span>在 <code>workersToDelete</code>(閒置,該刪) · 10/10 滿,A 還差 a7、a8 沒有空格</p>
+
+  <p class="cap">圖二 · 現在的程式:每一輪都一樣</p>
+  <div class="flow">
+    <div class="round">每一輪 reconcile</div>
+    <div class="step fail"><b>group A</b> · 建 a7 → quota 滿,被拒絕 → <code>return</code>(L1210)</div>
+    <div class="step skip"><b>group B</b> · 跑不到,b2 b3 b4 沒被刪</div>
+    <div class="arrow">↻ b2 b3 b4 不刪 → quota 一直滿 → a7 一直被拒 → 下一輪一模一樣</div>
+  </div>
+
+  <p class="cap">圖三 · 修好之後</p>
+  <div class="flow">
+    <div class="round">第 1 輪</div>
+    <div class="step fail"><b>group A</b> · 建 a7 → quota 滿,被拒絕 → 記下錯誤,<code>break</code>(不 return)</div>
+    <div class="step ok"><b>group B</b> · 刪 b2 b3 b4 → quota 變成 7/10</div>
+    <div class="arrow">↓ Pod 刪除 event 觸發下一輪 reconcile</div>
+    <div class="round">第 2 輪</div>
+    <div class="step ok"><b>group A</b> · 建 a7、a8 → 9/10</div>
+    <div class="step ok"><b>group B</b> · 1/1,不用動</div>
+  </div>
+  <div class="slots" role="img" aria-label="修好後 quota 用了 9 格:a1 到 a8 屬於 group A,b1 屬於 group B,剩 1 格空">
+    <div class="slot a">a1</div><div class="slot a">a2</div><div class="slot a">a3</div><div class="slot a">a4</div><div class="slot a">a5</div><div class="slot a">a6</div><div class="slot a">a7</div><div class="slot a">a8</div>
+    <div class="slot b">b1</div><div class="slot empty">—</div>
+  </div>
+  <p class="legend">9/10,A 和 B 都達到想要的數量</p>
+
+  <p class="q">ASD-STE100 版本</p>
+  <p>ASD-STE100 是以英文為基礎的受控語言:短句、一句只講一件事、主動語態。</p>
+  <div class="ste" lang="en">
+    <h4>The problem</h4>
+    <ol>
+      <li>The cluster has two worker groups: group A and group B.</li>
+      <li>The namespace quota is 10 Pods. The two groups use the same quota.</li>
+      <li>Group A has 6 Pods. Group A must have 8 Pods.</li>
+      <li>Group B has 4 Pods. Group B must have 1 Pod.</li>
+      <li>The autoscaler writes the names of 3 Pods of group B in <code>workersToDelete</code>.</li>
+      <li>The controller must delete these 3 Pods. The autoscaler does not delete Pods.</li>
+      <li>The quota is full. Thus, the controller cannot create Pods for group A.</li>
+    </ol>
+    <h4>What the controller does now</h4>
+    <ol>
+      <li>The controller always does group A first and group B second.</li>
+      <li>The controller tries to create a Pod for group A.</li>
+      <li>The quota is full. Thus, Kubernetes rejects the Pod.</li>
+      <li>The controller stops all work for the cluster. It does not go to group B.</li>
+      <li>The 3 Pods of group B stay. They use 3 places in the quota.</li>
+      <li>The controller tries again later. The same steps occur again.</li>
+      <li>Result: the controller cannot create Pods for group A. It also cannot delete Pods of group B.</li>
+    </ol>
+    <h4>What the controller does after the fix</h4>
+    <ol>
+      <li>The controller tries to create a Pod for group A.</li>
+      <li>Kubernetes rejects the Pod.</li>
+      <li>The controller keeps the error. It stops work for group A only.</li>
+      <li>The controller goes to group B. It deletes the 3 Pods.</li>
+      <li>Now the quota has 3 empty places.</li>
+      <li>The deletion of the Pods starts a new pass of the controller.</li>
+      <li>In the new pass, the controller creates 2 Pods for group A.</li>
+      <li>Result: group A has 8 Pods. Group B has 1 Pod.</li>
+    </ol>
+  </div>
+
+  <p class="q">所以 group A、group B 有順序性?</p>
+  <p>對,順序就是 <code>spec.workerGroupSpecs</code> 陣列裡的順序。L1069 是 <code>for _, worker := range instance.Spec.WorkerGroupSpecs</code>,每一輪都是第 0 個先、第 1 個後,永遠一樣。</p>
+  <ul>
+    <li><strong>失敗的 group 排前面</strong>(A 在 B 前):每一輪都在 A 那裡 <code>return</code>,B 永遠跑不到,卡死。</li>
+    <li><strong>順序反過來</strong>(B 在 A 前):B 先刪掉 <code>workersToDelete</code> 的 Pod,quota 空出來;接著 A 失敗、<code>return</code>,但 B 已經刪完了。下一輪 A 就建得起來,不會卡死。</li>
+  </ul>
+  <p>同一個 cluster,只要在 YAML 裡把兩個 group 對調,這個 bug 就會消失。測試裡刻意寫成 <code>[]rayv1.WorkerGroupSpec{groupA, groupB}</code>,順序寫反的話,測試在修之前就會通過,也就測不到 bug。修好之後順序就不重要了,失敗只會停掉自己那個 group。</p>
+
+  <p class="q">namespace quota 是 ResourceQuota?還是 <code>spec.resources.limits</code>?</p>
+  <p>是 <strong>ResourceQuota</strong>。它和 Pod 的 <code>resources.limits</code> 是不同層級,但兩者有關:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>設定</th><th>是什麼</th><th>範圍</th><th>寫在哪</th></tr></thead>
+      <tbody>
+        <tr><td><strong>ResourceQuota</strong></td><td>namespace 的總額度</td><td>整個 namespace 加總</td><td>獨立物件 <code>kind: ResourceQuota</code></td></tr>
+        <tr><td><code>resources.limits</code> / <code>requests</code></td><td>單一 container 的用量</td><td>一個 container</td><td>Pod spec 裡</td></tr>
+        <tr><td>LimitRange</td><td>單一 container 的預設值與上下限</td><td>每個 container 各自檢查</td><td>獨立物件 <code>kind: LimitRange</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+<pre><code>apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: pod-quota
+  namespace: ray
+spec:
+  hard:
+    pods: "10"              # Pod 數量上限
+    requests.cpu: "20"      # 所有 Pod 的 CPU request 加總上限
+    requests.memory: 64Gi
+    limits.cpu: "40"        # 所有 Pod 的 CPU limit 加總上限
+    limits.memory: 128Gi</code></pre>
+  <p>ResourceQuota 算的就是每個 Pod 的 <code>requests</code> / <code>limits</code> 的<strong>加總</strong>。例如每個 worker 都是 <code>limits.cpu = 4</code>,10 個 Pod 就是 40 CPU,剛好把 <code>limits.cpu</code> 用滿。issue 說的 pod 數、CPU、記憶體三種情況是同一種機制,只差 <code>spec.hard</code> 哪一項先用完。</p>
+  <p>建 Pod 時 apiserver 的 <strong>ResourceQuota admission</strong> 檢查加上這個 Pod 會不會超額,超過就直接回 <strong>403 Forbidden</strong>,Pod 根本不會被建立:</p>
+<pre><code>pods "raycluster-group-a-xxxxx" is forbidden: exceeded quota: pod-quota,
+requested: pods=1, used: pods=10, limited: pods=10</code></pre>
+  <p>測試 interceptor 回傳的 <code>k8serrors.NewForbidden(... "exceeded quota" ...)</code> 模擬的就是這個。</p>
+  <ul>
+    <li>quota 有 CPU/記憶體項目時,Pod 一定要寫 requests/limits,否則也會被拒(<code>must specify limits.cpu</code>),除非有 LimitRange 補預設值。重現環境時可能會踩到。</li>
+  </ul>
+  <div class="note">
+    <p><strong>未確認:</strong>印象中 quota 的 Pod evaluator 會排除 Succeeded/Failed 的 Pod,而 graceful termination 中的 Pod 要過了 grace period 才不算,還沒去翻 k8s 原始碼確認。如果是這樣,修好之後 B 送出刪除的下一輪,A 可能<strong>還是</strong>被拒;等 B 的 Pod 真的消失又產生 Pod event,再一輪 A 才建成功。會多失敗一兩輪,但最後仍會自己恢復,結論不變。</p>
+  </div>
+
+  <p class="q">也就是回報者的 cluster 有 ResourceQuota 這個物件?</p>
+  <p>很可能有,但 issue 沒有直接證據:沒貼 YAML,只寫「resource namespace quota error」和「Set k8s resource limits to something relatively low」。不過可以反推,因為 <strong>bug 要發生,建 Pod 時必須直接收到錯誤</strong>,只有 admission 階段被拒才會這樣:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>情況</th><th>Pod 會怎樣</th><th><code>createWorkerPod</code></th><th>觸發 bug?</th></tr></thead>
+      <tbody>
+        <tr><td><strong>ResourceQuota 用滿</strong></td><td>不會被建立</td><td>收到 403 <code>exceeded quota</code></td><td><strong>會</strong></td></tr>
+        <tr><td><strong>node 資源不夠</strong>(CPU、記憶體、EKS 每台 node 的 max pods)</td><td>建立成功,卡在 <strong>Pending</strong></td><td>成功,沒有錯誤</td><td>不會</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>node 資源不夠時,Pending 的 Pod 也會算進 <code>runningPods</code>(L1154 只排除剛刪掉的 Pod,不看 phase),<code>diff</code> 變成 0,controller 正常跑到 group B,不會卡住。</p>
+  <ul>
+    <li>他說的是「quota error」,描述的現象也是 reconcile 被中斷,只符合第一種。EKS 多租戶 cluster 由 platform 團隊在每個 namespace 放 ResourceQuota 很常見,使用者自己不一定知道。</li>
+    <li><strong>其他會在 admission 階段拒絕 Pod 的東西也會觸發同一個 bug</strong>,例如 OPA Gatekeeper、Kyverno 這類 policy webhook。修法不看錯誤種類,只要建立失敗就繼續下一個 group,所以一樣適用。可以寫進 PR 描述。</li>
+    <li>想確認的話,可以請回報者貼 <code>kubectl get resourcequota -n &lt;ns&gt; -o yaml</code> 和 controller log 裡的錯誤訊息,但修法不需要等這個答案。</li>
+  </ul>
 
   <h2>2. L1210 不是唯一的出口</h2>
 
@@ -209,7 +382,7 @@ for _, worker := range instance.Spec.WorkerGroupSpecs {
     ...
     if isRayMultiHostIndexing {
         if err := r.reconcileMultiHostWorkerGroup(...); err != nil {
-            if !errors.Is(err, utils.ErrFailedCreateWorkerPod) { return err }
+            if !errstd.Is(err, utils.ErrFailedCreateWorkerPod) { return err }
             errs = append(errs, err)
         }
         continue
@@ -226,8 +399,68 @@ for _, worker := range instance.Spec.WorkerGroupSpecs {
 return errstd.Join(errs...) // nil if errs is empty</code></pre>
   <ul>
     <li><strong>內層用 <code>break</code> 不是 <code>continue</code></strong>:一個建立被 quota 拒絕,剩下的也會被拒。每輪重試 <code>diff</code> 次只會灌爆 API server 和 event。</li>
-    <li><strong>L1098 的 <code>errors.Is</code></strong>:只讓 multi-host 路徑的建立失敗繼續往下,其他錯誤(例如刪除失敗)維持現在整輪停下的行為。</li>
+    <li><strong>L1098 的 <code>errstd.Is</code></strong>:只讓 multi-host 路徑的建立失敗繼續往下,其他錯誤(例如刪除失敗)維持現在整輪停下的行為。</li>
     <li><code>diff &gt; 0</code> 分支是迴圈主體的最後一段,<code>break</code> 出來就會接到下一個 group。</li>
+  </ul>
+
+  <p class="q">這段建立迴圈的語意是什麼?</p>
+  <p>「這個 group 建 Pod 失敗了,記下錯誤,不要再試這個 group,接著處理下一個 group。」</p>
+  <ul>
+    <li><code>for i := range diff</code>:Go 1.22 起可以對整數 range,<code>i</code> 從 0 跑到 <code>diff-1</code>,缺幾個 Pod 就建幾次。</li>
+    <li><code>if err := ...; err != nil</code>:<code>if</code> 帶初始化敘述,<code>err</code> 只在這個 <code>if</code> 裡有效。</li>
+    <li><code>errstd.Join(utils.ErrFailedCreateWorkerPod, err)</code>:把真正的原因(例如 <code>Forbidden: exceeded quota</code>)和 KubeRay 的標記包成一個錯誤。<code>calculateStatus</code> 靠這個標記把 <code>ReplicaFailure</code> 的 reason 寫成 <code>FailedCreateWorkerPod</code>。原本的 L1210 就是這樣包的,差別只在不 <code>return</code>,改成 <code>append</code> 進 <code>errs</code>。</li>
+    <li><code>return errstd.Join(errs...)</code>:<code>errs</code> 是空的話回傳 <code>nil</code>。</li>
+  </ul>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>寫法</th><th>離開哪裡</th><th>結果</th></tr></thead>
+      <tbody>
+        <tr><td><code>return</code>(現在的 L1210)</td><td>整個 <code>reconcilePods</code></td><td>後面的 group 都跑不到,就是這個 bug</td></tr>
+        <tr><td><code>continue</code></td><td>只跳過內層這一圈</td><td>繼續建下一個 Pod,quota 滿的話每個都被拒,白打 API server</td></tr>
+        <tr><td><code>break</code></td><td>只離開<strong>內層</strong>建 Pod 的迴圈</td><td>不再建這個 group 的 Pod,接著跑外層下一個 group</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="q"><code>errors.Is</code> 是什麼?</p>
+  <p><code>errors.Is(err, target)</code> 問的是「這個錯誤<strong>裡面</strong>有沒有包著 <code>target</code>」。看 <code>$GOROOT/src/errors/wrap.go</code>:</p>
+  <ol>
+    <li><code>err == target</code> 就回 true。</li>
+    <li>不是就 <code>Unwrap()</code> 拆一層再比,一直拆到底。</li>
+    <li>遇到 <code>Join</code> 產生的錯誤(<code>Unwrap() []error</code>),裡面每一個都去比。</li>
+  </ol>
+  <p>所以包好之後 <code>errors.Is(joined, utils.ErrFailedCreateWorkerPod)</code> 是 true,測試裡的 <code>require.ErrorIs</code> 就是用這個。相近的 <code>errors.As</code> 問的是「裡面有沒有<strong>這個型別</strong>,有就拿出來」,<code>RayClusterReplicaFailureReason</code> 用的是 <code>As</code>。</p>
+  <div class="note">
+    <p><strong>命名陷阱:</strong><code>raycluster_controller.go</code> 裡的 <code>errors</code> 是 k8s 的 <code>apimachinery/pkg/api/errors</code>(L1141 的 <code>errors.IsNotFound</code>),標準庫 errors 改名成 <code>errstd</code>(L7)。所以 L1098 要寫 <code>errstd.Is</code>,不是 <code>errors.Is</code>。</p>
+  </div>
+  <p>延伸閱讀:Go blog〈Working with Errors in Go 1.13〉、<code>pkg.go.dev/errors</code>、<code>$GOROOT/src/errors/wrap.go</code> 與 <code>join.go</code>。</p>
+
+  <p class="q">這樣不就每一個 err 的地方都要收集?</p>
+  <p>不用。只有決定要改的 3 個地方收集,其他 <code>return</code> 不動:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>位置</th><th>改法</th></tr></thead>
+      <tbody>
+        <tr><td>L1202、L1210(建立失敗)</td><td><code>append</code> 進 <code>errs</code> + <code>break</code></td></tr>
+        <tr><td>L1098(multi-host)</td><td><code>errstd.Is</code> 判斷:建立失敗就 <code>append</code> + <code>continue</code>,其他錯誤照樣 <code>return</code></td></tr>
+        <tr><td>其他 7 個 <code>return</code></td><td><strong>不動</strong>,一樣馬上結束整個函式</td></tr>
+        <tr><td>迴圈結束後</td><td><code>return errstd.Join(errs...)</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>函式裡會同時有兩種處理:建立失敗「記下來,繼續跑」,其他錯誤「馬上停」。這就是第 3 節範圍決定在程式碼上的樣子。</p>
+
+  <p class="q">混用有什麼副作用?</p>
+  <p>Group A 建立失敗、錯誤存進 <code>errs</code>;接著 group B 刪除失敗,<code>return errstd.Join(ErrFailedDeleteWorkerPod, err)</code>。這個 <code>return</code> 只帶 group B 的錯誤,<strong>group A 已收集的錯誤被丟掉</strong>。</p>
+  <ul>
+    <li><strong>requeue 不受影響</strong>:回傳的錯誤還是非 nil。</li>
+    <li><strong>status reason</strong> 寫 <code>FailedDeleteWorkerPod</code> 而不是 <code>FailedCreateWorkerPod</code>。一個 condition 本來就只放一個 reason,收集了也只顯示第一個。</li>
+    <li><strong>group A 的失敗還是有紀錄</strong>:<code>createWorkerPod</code> 失敗時先發 <code>FailedToCreateWorkerPod</code> event(L1703)才回傳,<code>kubectl describe</code> 看得到。</li>
+  </ul>
+  <p>結論:可以接受,不為此改另外 7 個 <code>return</code>。真的不想丟錯誤有兩種做法,但都比較重:</p>
+  <ul>
+    <li>每個 <code>return</code> 改成 <code>return errstd.Join(append(errs, err)...)</code>:diff 變大、容易漏改。</li>
+    <li>把迴圈主體抽成 <code>reconcileWorkerGroup(...)</code>,外層統一處理錯誤:diff 最大,reviewer 要看懂的最多。</li>
   </ul>
 
   <h2>5. reconcile 怎麼被觸發</h2>
@@ -318,8 +551,10 @@ ray.io/replica-host-index:         2                 # host 2 of 4</code></pre>
   <div class="note">
     <ul>
       <li>補第三個 subtest:multi-host 路徑(L1418 → L1098),需要 <code>NumOfHosts: 2</code> 的 group 和帶正確 label 的 Pod。最好在修之前加,讓三條路徑都先紅燈。</li>
-      <li>實作修法:L1202、L1210 改成收集錯誤 + <code>break</code>;L1098 加 <code>errors.Is</code> 判斷;迴圈結束回傳 <code>errstd.Join(errs...)</code>。</li>
-      <li>PR 描述:說明範圍只處理建立失敗,列出刪除失敗和「非 owned 資源釋放 quota 時等退避」兩個已知限制。</li>
+      <li>實作修法:L1202、L1210 改成收集錯誤 + <code>break</code>;L1098 加 <code>errstd.Is</code> 判斷;迴圈結束回傳 <code>errstd.Join(errs...)</code>。</li>
+      <li>PR 描述:說明範圍只處理建立失敗,列出三個已知限制:刪除失敗仍會擋住後面的 group、「非 owned 資源釋放 quota 時要等退避」、提早 <code>return</code> 會蓋掉已收集的建立錯誤(event 仍有留下)。</li>
+      <li>PR 描述:補一句修法不限於 quota,任何 admission 階段的拒絕(例如 Gatekeeper、Kyverno)都適用。</li>
+      <li>(可選)翻 k8s quota 的 Pod evaluator,確認 terminating Pod 何時不再佔 quota。</li>
       <li>PR 合併後再開 follow-up issue 追蹤刪除失敗的情況。</li>
     </ul>
   </div>
