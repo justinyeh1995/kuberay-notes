@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pod Create vs Schedule</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+
+  .phases { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0 18px; }
+  .phase { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 14px 16px; }
+  .phase h4 { margin: 0 0 4px; font-size: 0.98rem; }
+  .phase .who { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 10px; }
+  .phase ol { margin: 0 0 10px; padding-left: 1.2em; font-size: 0.9rem; }
+  .phase .out { font-size: 0.86rem; border-radius: 4px; padding: 6px 10px; margin-top: 6px; }
+  .out.ok { background: var(--accent-soft); }
+  .out.bad { background: var(--warn-soft); }
+  .handoff { grid-column: 1 / -1; text-align: center; font-size: 0.84rem; color: var(--muted); }
+  @media (max-width: 600px) { .phases { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Kubernetes 基礎 · 延伸自 issue #5364</p>
+  <h1>Pod Create vs Schedule</h1>
+  <p class="meta">整理自 2026-10-05 的問答 · 相關筆記:<a href="kuberay-issue5364-worker-group-deadlock-notes.html">Worker Group Deadlock Notes</a></p>
+
+  <div class="verdict">
+    <p><strong>一句話:</strong>「建立 Pod」和「把 Pod 排到 node 上」是兩個分開的步驟,由不同元件負責、發生在不同時間點。<code>r.Create</code> 只參與第一步。</p>
+    <ul>
+      <li><strong>ResourceQuota</strong> 在建立<strong>之前</strong>由 apiserver 檢查,超額直接回 403,Pod 不會被存起來。</li>
+      <li><strong>node 資源不夠</strong>在建立<strong>之後</strong>由 kube-scheduler 發現,<code>r.Create</code> 早就拿到 201,Pod 只是卡在 Pending。</li>
+      <li>所以只有前者會讓 <code>createWorkerPod</code> 收到錯誤,觸發 #5364 的卡死。</li>
+    </ul>
+  </div>
+
+  <h2>1. 為什麼 node 不夠時,<code>createWorkerPod</code> 不會收到錯誤?</h2>
+
+  <p class="q">Pod 卡在 Pending,<code>createWorkerPod</code> 不會收到錯誤,為什麼?</p>
+  <p><code>r.Create</code> 是對 apiserver 發一個 HTTP 請求,意思是「幫我把這個 Pod 物件存起來」。apiserver 檢查完、寫進 etcd,就回 <strong>201 Created</strong>。在這個時間點,<strong>沒有人檢查過哪個 node 有空間</strong>。</p>
+
+  <p class="cap">建 Pod 的兩個階段</p>
+  <div class="phases">
+    <div class="phase">
+      <h4>階段一 · 建立(同步)</h4>
+      <p class="who">KubeRay → apiserver</p>
+      <ol>
+        <li>認證、授權</li>
+        <li>admission(<strong>含 ResourceQuota</strong>)</li>
+        <li>驗證 Pod spec</li>
+        <li>寫進 etcd</li>
+      </ol>
+      <div class="out ok">成功 → 回 <code>201 Created</code>,Pod 存在了,<code>phase: Pending</code></div>
+      <div class="out bad">quota 超額 → 回 <code>403 Forbidden</code>,Pod 不存在</div>
+    </div>
+    <div class="phase">
+      <h4>階段二 · 排程(非同步)</h4>
+      <p class="who">kube-scheduler → kubelet</p>
+      <ol>
+        <li>watch 到沒排程的 Pod</li>
+        <li>找有足夠資源的 node(用量、taint、affinity…)</li>
+        <li>找到就 bind 到 node,kubelet 啟動 container</li>
+      </ol>
+      <div class="out ok">找到 → Pod 變成 Running</div>
+      <div class="out bad">找不到 → 標記 <code>Unschedulable</code>,Pod 繼續 Pending</div>
+    </div>
+    <div class="handoff">KubeRay 在階段一拿到 201 就結束了,階段二的結果不會回傳給它</div>
+  </div>
+
+  <h2>2. 兩種「資源不夠」發生在不同的步驟</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th></th><th>在哪個步驟檢查</th><th>誰檢查</th><th><code>r.Create</code> 收到什麼</th></tr></thead>
+      <tbody>
+        <tr><td><strong>ResourceQuota</strong></td><td>階段一,建立<strong>之前</strong></td><td>apiserver 的 admission</td><td><strong>403 Forbidden</strong>,Pod 不會被存起來</td></tr>
+        <tr><td><strong>node 資源不夠</strong></td><td>階段二,建立<strong>之後</strong>、非同步</td><td>kube-scheduler</td><td><strong>201 Created</strong>,Pod 已存在,只是排不上去</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p><strong>ResourceQuota</strong> 問的是「這個 namespace 有沒有權利再多一個 Pod」,只要算加總,apiserver 馬上就能判斷,所以在建立時直接拒絕。</p>
+  <p><strong>node 資源</strong>問的是「哪台機器放得下」,要看每台 node 的用量、taint、affinity,這是 scheduler 的工作。scheduler 在 Pod <strong>已經存在之後</strong>才看到它,就算找不到 node,也只是在 Pod 的 status 寫上:</p>
+<pre><code>status:
+  phase: Pending
+  conditions:
+  - type: PodScheduled
+    status: "False"
+    reason: Unschedulable
+    message: "0/3 nodes are available: 3 Insufficient cpu."</code></pre>
+  <p>這個結果不會回傳給 KubeRay,<code>r.Create</code> 早就拿到 201 結束了。</p>
+
+  <h2>3. 對 KubeRay reconcile 迴圈的影響</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>情況</th><th><code>createWorkerPod</code></th><th>迴圈</th><th>下一輪</th></tr></thead>
+      <tbody>
+        <tr><td>node 不夠</td><td>回傳 <code>nil</code></td><td>繼續,跑到 group B</td><td>Pending 的 Pod 算進 <code>runningPods</code>,<code>diff</code> 是 0,不會一直重建</td></tr>
+        <tr><td>quota 滿</td><td>回傳錯誤</td><td>L1210 <code>return</code>,group B 跑不到</td><td>一樣的錯誤,一樣的結果(#5364)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>這也是為什麼 Pending 的 Pod 能被 Cluster Autoscaler 或 Karpenter 處理:它們看到 <code>Unschedulable</code> 的 Pod 就去加 node。被 quota 擋下的 Pod 根本沒被建立,它們什麼也看不到。</p>
+  <div class="note">
+    <p>延伸:不只 ResourceQuota,任何在<strong>階段一</strong>拒絕 Pod 的東西(policy webhook、Pod Security Admission、LimitRange、不合法的 spec)都會讓 <code>r.Create</code> 收到錯誤。判斷一個「資源不夠」會不會觸發 #5364,就看它發生在階段一還是階段二。</p>
+  </div>
+</main>
+</body>
+</html>

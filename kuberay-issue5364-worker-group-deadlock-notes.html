@@ -126,7 +126,7 @@
 <main>
   <p class="eyebrow">KubeRay issue #5364 · worker group reconciliation</p>
   <h1>Worker Group Deadlock Notes</h1>
-  <p class="meta">整理自 2026-10-04 的問答 · issue <a href="https://github.com/ray-project/kuberay/issues/5364">#5364</a> · branch <code>fix/issue-5364-worker-group-deadlock</code></p>
+  <p class="meta">整理自 2026-10-04 的問答 · issue <a href="https://github.com/ray-project/kuberay/issues/5364">#5364</a> · branch <code>fix/issue-5364-worker-group-deadlock</code> · 相關筆記:<a href="kuberay-pod-create-vs-schedule-notes.html">Pod Create vs Schedule</a></p>
 
   <div class="verdict">
     <p><strong>一句話:</strong><code>reconcilePods</code> 依固定順序逐一處理 worker group,任何一個 group 建立 Pod 失敗就直接 <code>return</code>,整個迴圈結束。namespace quota 滿了的時候,排在前面的 group 每一輪都失敗,排在後面的 group 永遠輪不到刪除 <code>WorkersToDelete</code>,而那些 Pod 正是佔住 quota 的元兇。</p>
@@ -300,12 +300,37 @@ requested: pods=1, used: pods=10, limited: pods=10</code></pre>
       </tbody>
     </table>
   </div>
-  <p>node 資源不夠時,Pending 的 Pod 也會算進 <code>runningPods</code>(L1154 只排除剛刪掉的 Pod,不看 phase),<code>diff</code> 變成 0,controller 正常跑到 group B,不會卡住。</p>
+  <p>node 資源不夠時,Pending 的 Pod 也會算進 <code>runningPods</code>(L1154 只排除剛刪掉的 Pod,不看 phase),<code>diff</code> 變成 0,controller 正常跑到 group B,不會卡住。為什麼建立和排程是分開的,見 <a href="kuberay-pod-create-vs-schedule-notes.html">Pod Create vs Schedule</a>。</p>
   <ul>
     <li>他說的是「quota error」,描述的現象也是 reconcile 被中斷,只符合第一種。EKS 多租戶 cluster 由 platform 團隊在每個 namespace 放 ResourceQuota 很常見,使用者自己不一定知道。</li>
     <li><strong>其他會在 admission 階段拒絕 Pod 的東西也會觸發同一個 bug</strong>,例如 OPA Gatekeeper、Kyverno 這類 policy webhook。修法不看錯誤種類,只要建立失敗就繼續下一個 group,所以一樣適用。可以寫進 PR 描述。</li>
     <li>想確認的話,可以請回報者貼 <code>kubectl get resourcequota -n &lt;ns&gt; -o yaml</code> 和 controller log 裡的錯誤訊息,但修法不需要等這個答案。</li>
   </ul>
+
+  <p class="q">沒有 ResourceQuota 的話,一般 autoscaling 就不會遇到問題嗎?</p>
+  <p>大部分情況不會,但「沒有 ResourceQuota」不等於「安全」。關鍵是:<strong>建 Pod 時有沒有直接收到錯誤,而且這個錯誤會不會一直重複</strong>。</p>
+  <p>一般的 autoscaling 資源不夠,通常是 <strong>node 不夠</strong>:autoscaler 調高 <code>replicas</code> → KubeRay 建 Pod <strong>成功</strong> → Pod 卡在 Pending,等 Cluster Autoscaler 或 Karpenter 加 node → KubeRay 繼續處理 group B。Pending 的 Pod 算進 <code>runningPods</code>,<code>diff</code> 是 0,不會卡住。這是最常見的情況。</p>
+  <p>沒有 ResourceQuota 也會觸發的情況:任何會讓 apiserver <strong>在建立時一直拒絕</strong>某個 group 的 Pod 的東西:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>原因</th><th>例子</th></tr></thead>
+      <tbody>
+        <tr><td>policy webhook</td><td>OPA Gatekeeper、Kyverno 的規則擋下 group A 的 Pod(例如禁止某個 image registry)</td></tr>
+        <tr><td>Pod Security Admission</td><td>namespace 設成 <code>restricted</code>,group A 的 Pod 要求 privileged</td></tr>
+        <tr><td>LimitRange</td><td>group A 的 container 要的資源超過 LimitRange 的 <code>max</code></td></tr>
+        <tr><td>Pod spec 不合法</td><td>apiserver 驗證失敗回 422(例如 requests 大於 limits),而 KubeRay 自己的 validation 沒抓到</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>這些和 quota 有一個重要差別:<strong>從一開始就失敗,不用等到 burst</strong>。group A 只要設定錯了,排在後面的 group B 就<strong>完全不會被 reconcile</strong>,不只刪不掉 Pod,連擴容都不會發生。</p>
+  <ul>
+    <li><strong>影響範圍比 issue 描述的大</strong>:真正的問題是「一個 group 的持續性建立失敗會擋住其他所有 group」,修法同時讓各 group 彼此隔離。</li>
+    <li><strong>修法不用改</strong>:它不看錯誤種類,只要建立失敗就記下來、繼續下一個 group。</li>
+    <li><strong>暫時性錯誤本來就沒問題</strong>:API server 抖一下、網路斷一下,下一輪 reconcile 就恢復。</li>
+  </ul>
+  <div class="note">
+    <p>上面的表是從 apiserver 的 admission 機制推出來的,沒有一個一個實測。PR 描述用「for example, admission webhooks or Pod Security Admission」這種舉例寫法,不要寫成已驗證的事實。</p>
+  </div>
 
   <h2>2. L1210 不是唯一的出口</h2>
 
@@ -547,13 +572,87 @@ ray.io/replica-host-index:         2                 # host 2 of 4</code></pre>
   <p>前兩個現在就會過,是用來防止修過頭。只有第三個呈現 bug,兩個 subtest 都失敗在 <code>extra elements: pod3, pod4</code>。</p>
 <pre><code>go test ./controllers/ray/ -run TestReconcile_CreateFailureDoesNotBlockOtherWorkerGroups -count=1</code></pre>
 
-  <h2>8. 待辦</h2>
+  <h2>8. 遠端重現結果</h2>
+
+  <p class="cap">環境:justin-dev-vm(GCE,IAP)· kind · <code>rayproject/ray:2.59.0</code> · 2026-10-06</p>
+  <p>步驟照 <code>~/adhoc/i-5364/REPRO.md</code>:namespace 放 <code>pods: "6"</code> 的 ResourceQuota → RayCluster 兩個 group 各 2 個(關掉 autoscaling,<code>group-a</code> 排第一)→ group-a 調到 6 → 確認 <code>exceeded quota</code> → group-b 調成 1 並把一個 Pod 寫進 <code>workersToDelete</code> → 觀察 group-b。</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th></th><th>修之前</th><th>修之後</th></tr></thead>
+      <tbody>
+        <tr><td>cluster</td><td><code>idle-termination-cluster</code></td><td><code>test-cluster</code></td></tr>
+        <tr><td>operator</td><td>Helm 裝的 <code>kuberay/operator:idle-termination</code></td><td><code>go run</code>,branch <code>d2ae96d7</code></td></tr>
+        <tr><td>scale-b 後的 group-b</td><td><strong>2</strong>,觀察 2 分鐘以上都沒變</td><td><strong>1</strong>,5 秒內</td></tr>
+        <tr><td>被指名的 Pod</td><td><code>bc4fs</code> 一直沒被刪</td><td><code>hmd6v</code> 被刪掉</td></tr>
+        <tr><td>group-a</td><td>3,卡住</td><td>3 → 4,拿到空出來的那格</td></tr>
+        <tr><td>quota</td><td>6/6</td><td>6/6(group-a 補滿)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="q">修之前:怎麼確定是卡在 group-a?</p>
+  <p>從 operator log 整理出 scale-b patch(02:22:41)之後的時間線。<code>observedGeneration</code> 是 3,operator 有讀到 patch,但每一輪都只跑到 group-a 就結束:</p>
+<pre><code>02:22:41.654 scaleStrategy group-a
+02:22:41.660 ERROR FailedCreateWorkerPod     ← 在 group-a return
+02:25:55.315 scaleStrategy group-a
+02:25:55.318 ERROR FailedCreateWorkerPod
+...(重複 6 次,一次都沒有跑到 group-b)</code></pre>
+  <ul>
+    <li>log 裡 group-b 的 44 次 <code>scaleStrategy</code> <strong>全部在 scale-b 之前</strong>,patch 之後一次都沒有。</li>
+    <li>02:22:41 到 02:25:55 之間 3 分鐘沒有任何 reconcile:前面已經失敗二十幾次,controller-runtime 的指數退避把間隔拉長了(見第 5 節)。</li>
+    <li>RayCluster status 出現 <code>ReplicaFailure</code> condition,reason 是 <code>FailedCreateWorkerPod</code>,證實了 <code>ErrFailedCreateWorkerPod</code> 標記的用途。</li>
+  </ul>
+
+  <p class="q">修之後:發生了什麼?</p>
+<pre><code>02:40:09  quota=6/6  group-a=3  group-b=2   ← scale-b 剛 patch
+02:40:14  quota=6/6  group-a=4  group-b=1   ← B 刪掉 hmd6v,A 立刻拿走空出的那格</code></pre>
+  <ol>
+    <li>group-a 建立被拒,記下錯誤、<code>break</code>,沒有 return。</li>
+    <li>迴圈跑到 group-b,刪掉 <code>hmd6v</code>,quota 變 5/6。</li>
+    <li>Pod 刪除 event 觸發下一輪,group-a 用空出的那格建第 4 個,quota 回到 6/6。</li>
+  </ol>
+  <p>就是第 5 節預測的自我恢復:group-b 的刪除產生的 event,剛好讓 group-a 重試。</p>
+
+  <p class="q">最後還是會 exceeded quota,group-a 要的是 6?</p>
+  <p>對,這是預期也是正確的行為。<strong>修法不是讓 quota 錯誤消失</strong>:扣掉 head 和 group-b,group-a 最多只能有 4 個,這是真實限制。修法改變的是<strong>錯誤影響到誰</strong>,group-a 自己的問題只停在 group-a。</p>
+  <ul>
+    <li>繼續報錯,使用者才知道 group-a 沒達到期望數量(<code>ReplicaFailure</code>、event、log 都還在)。</li>
+    <li>錯誤讓 controller-runtime 退避重試,quota 一空出來就補上,剛才的 3 → 4 就是這樣。</li>
+    <li>內層是 <code>break</code>,每輪對 group-a 只嘗試一次,log 和 event 量跟修之前一樣。</li>
+    <li>真實環境裡,通常是 pending 工作做完、autoscaler 調低 <code>replicas</code>,或 admin 調高 quota,這個狀態才結束。</li>
+  </ul>
+
+  <p class="q">意外發現:head 也建不回來</p>
+  <p>修之前那次,head 一直 <code>OOMKilled</code>(2.59.0 在 2Gi limit 下不夠)。02:25:55 head 變成 <code>Failed</code>,KubeRay 刪掉準備重建,但 quota 已被 group-a 補滿,接著一直是 <code>FailedCreateHeadPod</code>,整個 cluster 沒有 head。同一個根源(quota 被佔住),但 head 重建在 worker 迴圈之前(L1053),修法不影響這部分。可以當作 PR 描述裡的觀察。</p>
+
+  <p class="q">重現時踩到的坑</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>現象</th><th>原因</th><th>解法</th></tr></thead>
+      <tbody>
+        <tr><td>以為沒產生 <code>exceeded quota</code></td><td>處理 RayCluster 的是 Helm 的 operator,log 不在自己的 terminal</td><td><code>kubectl -n default logs deploy/kuberay-operator</code>,或直接看 <code>kubectl get events</code></td></tr>
+        <tr><td>跑在 idle termination 的 cluster 上</td><td>kubectl 的 current context 停在 <code>kind-idle-termination-cluster</code></td><td>先 <code>kubectl config use-context kind-test-cluster</code></td></tr>
+        <tr><td><code>go run</code> 一啟動就退出:<code>unable to find leader election namespace</code></td><td>leader election 預設開啟,不在 Pod 裡找不到 namespace</td><td><code>go run ./main.go --enable-leader-election=false</code></td></tr>
+        <tr><td>head <code>OOMKilled</code></td><td>2.59.0 的 head 在 2Gi limit 不夠</td><td>head memory limit 調到 4Gi</td></tr>
+        <tr><td>兩個 controller 搶同一個 RayCluster</td><td>cluster 裡已有 Helm 的 operator</td><td>先 <code>kubectl -n default scale deploy kuberay-operator --replicas=0</code>,做完再 scale 回 1</td></tr>
+        <tr><td>Pod 數是 5 不是 6</td><td>head 1 + group-a 2 + group-b 2;operator 不是 Pod,quota 也只管自己的 namespace</td><td>正常,剩 1 格是刻意的</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <p>兩次的環境不完全一樣(cluster 不同,修之前用的也不是乾淨的 master)。PR 描述要更嚴謹的話,可以在 <code>test-cluster</code> 上 <code>git switch --detach 5cc0a27b</code> 再用 <code>go run</code> 跑一次修之前。</p>
+  </div>
+
+  <h2>9. 待辦</h2>
   <div class="note">
     <ul>
+      <li><s>在遠端重現修前、修後</s>:完成,見第 8 節。(可選)在 <code>test-cluster</code> 用 <code>5cc0a27b</code> 補跑一次乾淨的修之前。</li>
+      <li>REPRO.md 的 head memory limit 改成 4Gi 再貼到 PR。</li>
       <li>補第三個 subtest:multi-host 路徑(L1418 → L1098),需要 <code>NumOfHosts: 2</code> 的 group 和帶正確 label 的 Pod。最好在修之前加,讓三條路徑都先紅燈。</li>
       <li>實作修法:L1202、L1210 改成收集錯誤 + <code>break</code>;L1098 加 <code>errstd.Is</code> 判斷;迴圈結束回傳 <code>errstd.Join(errs...)</code>。</li>
       <li>PR 描述:說明範圍只處理建立失敗,列出三個已知限制:刪除失敗仍會擋住後面的 group、「非 owned 資源釋放 quota 時要等退避」、提早 <code>return</code> 會蓋掉已收集的建立錯誤(event 仍有留下)。</li>
-      <li>PR 描述:補一句修法不限於 quota,任何 admission 階段的拒絕(例如 Gatekeeper、Kyverno)都適用。</li>
+      <li>PR 描述:補一句修法不限於 quota,任何 admission 階段的持續拒絕(例如 Gatekeeper、Kyverno、Pod Security Admission)都適用;這類錯誤甚至不用等 burst,一個設定錯的 group 就會讓後面的 group 完全不被 reconcile。用舉例語氣,沒有實測。</li>
       <li>(可選)翻 k8s quota 的 Pod evaluator,確認 terminating Pod 何時不再佔 quota。</li>
       <li>PR 合併後再開 follow-up issue 追蹤刪除失敗的情況。</li>
     </ul>
