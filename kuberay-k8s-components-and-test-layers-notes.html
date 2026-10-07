@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Components and Test Layers</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+
+  .arch { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: stretch; margin: 12px 0 6px; }
+  .box { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 12px 14px; }
+  .box h4 { margin: 0 0 6px; font-size: 0.96rem; }
+  .box .sub { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); margin: 0 0 8px; }
+  .comp { border: 1px solid var(--rule); border-left: 4px solid var(--accent); border-radius: 4px; padding: 6px 10px; margin: 6px 0; font-size: 0.88rem; background: var(--bg); }
+  .comp.k8s { border-left-color: var(--muted); }
+  .comp b { font-family: var(--font-mono); font-weight: 500; }
+  .wire { display: flex; flex-direction: column; justify-content: center; align-items: center; color: var(--muted); font-size: 0.8rem; font-family: var(--font-mono); }
+  .yes { color: var(--accent); font-weight: 700; }
+  .no { color: var(--warn); }
+  @media (max-width: 640px) { .arch { grid-template-columns: 1fr; } .wire { flex-direction: row; gap: 6px; } }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Kubernetes / controller-runtime 基礎 · 延伸自 issue #5364</p>
+  <h1>Components and Test Layers</h1>
+  <p class="meta">整理自 2026-10-07 的問答 · 相關筆記:<a href="kuberay-issue5364-worker-group-deadlock-notes.html">Worker Group Deadlock Notes</a> · <a href="kuberay-pod-create-vs-schedule-notes.html">Pod Create vs Schedule</a></p>
+
+  <div class="verdict">
+    <p><strong>一句話:</strong>KubeRay operator 只跟 <strong>kube-apiserver</strong> 說話。unit test 的 <code>fakeClient</code> 取代的就是「透過 client 看到的 apiserver」,不是 controller manager;而且 unit test 連 KubeRay 自己的 Manager 都沒有,直接把 <code>reconcilePods</code> 當普通函式呼叫一次。</p>
+    <ul>
+      <li><strong>kube-controller-manager</strong>:Kubernetes 內建的 controller(ResourceQuota、ReplicaSet…),KubeRay 從不直接跟它溝通。</li>
+      <li><strong>KubeRay operator</strong> 本身也是一個「controller manager」:controller-runtime 的 <code>Manager</code>,裡面跑 <code>RayClusterReconciler</code>。</li>
+      <li>三種測試層級的差別,就在於這些元件哪些是真的、哪些是假的或根本不存在。</li>
+    </ul>
+  </div>
+
+  <h2>1. 真實環境裡有哪些元件</h2>
+
+  <div class="arch" role="img" aria-label="左邊是 KubeRay operator(Manager、informer cache、work queue、RayClusterReconciler),透過 HTTP 連到右邊的 Kubernetes control plane(kube-apiserver、etcd、admission、kube-scheduler、kube-controller-manager)與 node 上的 kubelet">
+    <div class="box">
+      <h4>KubeRay operator</h4>
+      <p class="sub">一個 Pod · ray-operator/main.go</p>
+      <div class="comp"><b>Manager</b> · <code>ctrl.NewManager</code>(main.go:312)</div>
+      <div class="comp"><b>informer cache</b> · watch 物件,讀取走這裡</div>
+      <div class="comp"><b>work queue</b> · 排隊、退避、requeue</div>
+      <div class="comp"><b>RayClusterReconciler</b> · <code>Reconcile</code> → <code>reconcilePods</code></div>
+    </div>
+    <div class="wire"><span>HTTP</span><span>⇄</span><span>只跟 apiserver</span></div>
+    <div class="box">
+      <h4>Kubernetes</h4>
+      <p class="sub">control plane + node</p>
+      <div class="comp k8s"><b>kube-apiserver</b> · 唯一的入口;認證、授權、<strong>admission(含 ResourceQuota)</strong>、驗證</div>
+      <div class="comp k8s"><b>etcd</b> · 存所有物件</div>
+      <div class="comp k8s"><b>kube-scheduler</b> · 把 Pod 排到 node</div>
+      <div class="comp k8s"><b>kube-controller-manager</b> · 內建 controller:resourcequota(算 <code>status.used</code>)、replicaset、deployment…</div>
+      <div class="comp k8s"><b>kubelet</b>(每台 node)· 真的把 container 跑起來</div>
+    </div>
+  </div>
+  <p class="cap">所有元件都只透過 kube-apiserver 溝通,彼此不直接說話。KubeRay 也一樣。</p>
+
+  <p class="q">「controller manager」到底指誰?</p>
+  <p>這個詞有兩個意思,這就是容易搞混的地方:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>說法</th><th>指的是</th><th>跑什麼</th></tr></thead>
+      <tbody>
+        <tr><td><strong>kube-controller-manager</strong></td><td>Kubernetes 自帶的一個程式</td><td>內建 controller:ResourceQuota、ReplicaSet、Deployment、Namespace…</td></tr>
+        <tr><td><strong>controller-runtime 的 <code>Manager</code></strong></td><td>寫 operator 用的 Go 函式庫裡的型別</td><td>你自己寫的 reconciler,例如 KubeRay 的 <code>RayClusterReconciler</code>、<code>RayJobReconciler</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>兩者是<strong>同一種模式</strong>(watch 物件 → 比對期望與現況 → 補差距),只是一個管 Kubernetes 內建資源,一個管 KubeRay 的 CRD。KubeRay operator 可以想成「專門管 RayCluster 的 controller manager」,跟 kube-controller-manager 是平行的,都只是 apiserver 的客戶端。</p>
+
+  <p class="q">KubeRay 的 Manager 做了什麼?</p>
+  <ul>
+    <li><code>main.go:312</code> <code>ctrl.NewManager(...)</code> 建出 Manager。</li>
+    <li><code>main.go:355</code> 起 <code>SetupWithManager(mgr, ...)</code> 把各個 reconciler 註冊進去,宣告要 watch 什麼(<code>For(&amp;RayCluster{})</code>、<code>Owns(&amp;Pod{})</code>…)。</li>
+    <li>Manager 負責:建 informer cache、收 watch event、把 request 放進 work queue、出錯時退避重試,最後呼叫 <code>Reconcile</code>(<code>raycluster_controller.go:114</code>)。</li>
+    <li>reconciler 裡的 <code>r.Client</code>:<strong>讀取</strong>(Get/List)預設走 informer cache,<strong>寫入</strong>(Create/Update/Delete)直接打 apiserver。</li>
+  </ul>
+
+  <h2>2. 三種測試層級:哪些是真的?</h2>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>元件</th><th>unit test</th><th>envtest</th><th>e2e(kind)</th></tr></thead>
+      <tbody>
+        <tr><td>kube-apiserver</td><td class="no">假的:<code>fakeClient</code>(記憶體 map)</td><td class="yes">真的</td><td class="yes">真的</td></tr>
+        <tr><td>etcd</td><td class="no">沒有</td><td class="yes">真的</td><td class="yes">真的</td></tr>
+        <tr><td>admission(ResourceQuota 等)</td><td class="no">沒有;要模擬就用 interceptor</td><td>apiserver 內建的有;但見下方註記</td><td class="yes">真的</td></tr>
+        <tr><td>kube-scheduler</td><td class="no">沒有</td><td class="no">沒有(Pod 永遠不會被排程)</td><td class="yes">真的</td></tr>
+        <tr><td>kube-controller-manager</td><td class="no">沒有</td><td class="no">沒有</td><td class="yes">真的</td></tr>
+        <tr><td>kubelet(container 真的跑)</td><td class="no">沒有</td><td class="no">沒有</td><td class="yes">真的</td></tr>
+        <tr><td>KubeRay Manager(watch、queue、requeue)</td><td class="no">沒有:直接呼叫 <code>reconcilePods</code></td><td class="yes">真的(suite 會啟動 reconciler)</td><td class="yes">真的(operator Pod)</td></tr>
+        <tr><td>event</td><td class="no"><code>events.FakeRecorder</code></td><td class="yes">真的</td><td class="yes">真的</td></tr>
+        <tr><td>速度</td><td>毫秒</td><td>秒</td><td>分鐘</td></tr>
+        <tr><td>這個 repo 的位置</td><td><code>*_unit_test.go</code></td><td><code>controllers/ray/suite_test.go</code> + <code>*_controller_test.go</code>(<code>TestAPIs</code>)</td><td><code>ray-operator/test/e2e/</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <p><strong>envtest 與 ResourceQuota(我的理解,未在此 repo 實測):</strong>ResourceQuota 要正常運作,需要 kube-controller-manager 裡的 resourcequota controller 算出 <code>status.used</code>。envtest 沒有 controller-manager,quota 的行為不會跟真實環境一樣,所以 #5364 不適合用 envtest 測 quota。</p>
+  </div>
+
+  <p class="q">#5364 的 unit test 長什麼樣子?</p>
+<pre><code>fakeClient := clientFake.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+    Create: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.CreateOption) error {
+        return errors.New("exceeded quota")   // 模擬 admission 拒絕
+    },
+}).WithRuntimeObjects(testPods...).Build()     // 預先放好的 Pod,不經過 interceptor
+
+testRayClusterReconciler := &amp;RayClusterReconciler{
+    Client:                     fakeClient,               // 取代 apiserver
+    Recorder:                   &amp;events.FakeRecorder{},   // 取代寫 event
+    Scheme:                     scheme.Scheme,
+    rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+}
+err := testRayClusterReconciler.reconcilePods(ctx, testRayCluster)  // 沒有 Manager,直接呼叫一次</code></pre>
+  <ul>
+    <li><strong>只測一輪 reconcile</strong>:下一輪什麼時候觸發、退避多久,是 Manager / work queue 的事,unit test 裡根本不存在。</li>
+    <li><strong>不模擬 quota 的機制</strong>(數 Pod、算 used/hard),只模擬<strong>結果</strong>(<code>Create</code> 回錯誤)。controller 只看得到 <code>err != nil</code>。</li>
+    <li><strong>不回傳 <code>ErrFailedCreateWorkerPod</code></strong>:那是 controller 自己包上去的標記,fake 先給了就測不到「controller 有沒有包」。</li>
+  </ul>
+
+  <p class="q">那真實的 quota 行為誰負責驗證?</p>
+  <p>手動重現(VM 上的 kind,等於手動的 e2e):真的 apiserver admission、真的 controller-manager 算 quota、真的 scheduler 和 kubelet。見 <a href="kuberay-issue5364-worker-group-deadlock-notes.html">Worker Group Deadlock Notes</a> 第 8 節。</p>
+
+  <h2>3. 測試裡常見的基本型別</h2>
+
+  <p class="q"><code>runtime.Object</code> 是什麼?<code>WithRuntimeObjects</code> 做什麼?</p>
+  <p><code>runtime.Object</code> 是 Kubernetes Go 函式庫裡的一個 <strong>interface</strong>,所有 API 型別(<code>Pod</code>、<code>Service</code>、<code>RayCluster</code>…)都實作它:</p>
+<pre><code>// k8s.io/apimachinery/pkg/runtime
+type Object interface {
+    GetObjectKind() schema.ObjectKind   // 我是哪種 Kind
+    DeepCopyObject() Object             // 複製一份自己
+}</code></pre>
+  <p>「runtime objects」就是「任何 Kubernetes 物件」的通稱。用 interface 的好處是一個 slice 可以裝不同種類的物件,例如 <code>testPods = []runtime.Object{&amp;corev1.Pod{...}, ...}</code>(<code>raycluster_controller_unit_test.go:105</code>)。</p>
+  <p><code>WithRuntimeObjects(testPods...)</code>:fake client 建好時,記憶體裡就<strong>已經有</strong>這些物件,像 cluster 裡本來就存在它們。它們是直接放進去的,<strong>不經過 interceptor 的 <code>Create</code></strong>,所以不會被拒絕。</p>
+
+  <p class="q">Scheme 是什麼?</p>
+  <p>一張<strong>對照表</strong>:Go 型別 ↔ Kubernetes 的 GroupVersionKind(GVK)。client 拿到一個 Go struct,要靠 scheme 才知道它是什麼 Kind、打 apiserver 的哪個 URL、怎麼序列化。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Go 型別</th><th>GVK</th></tr></thead>
+      <tbody>
+        <tr><td><code>corev1.Pod</code></td><td><code>/v1, Kind=Pod</code>(core group)</td></tr>
+        <tr><td><code>rayv1.RayCluster</code></td><td><code>ray.io/v1, Kind=RayCluster</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>內建型別預設已註冊;CRD 要自己註冊:</p>
+<pre><code>newScheme := runtime.NewScheme()      // 一張空表
+_ = rayv1.AddToScheme(newScheme)      // 加入 RayCluster、RayJob…
+_ = corev1.AddToScheme(newScheme)     // 加入 Pod、Service…</code></pre>
+  <ul>
+    <li>其他測試(例如 L1102–1104)建 <code>newScheme</code> 再 <code>.WithScheme(newScheme)</code> 給 fake client,因為它們要存 RayCluster 這種 CRD。</li>
+    <li>#5364 的測試<strong>沒有</strong> <code>.WithScheme(...)</code>,fake client 用預設 scheme。裡面有 Pod,夠用,因為只存 Pod。所以註解寫「with newScheme」是不準確的。</li>
+    <li>reconciler 的 <code>Scheme: scheme.Scheme</code>:<code>buildWorkerPod</code> 用它設定 owner reference(<code>raycluster_controller.go:1802</code> 的 <code>SetControllerReference(&amp;instance, &amp;pod, r.Scheme)</code>),要從 scheme 查出 RayCluster 的 GVK。失敗時只記 log(L1803),Pod 照樣 build,不影響這個測試。</li>
+  </ul>
+
+  <p class="q"><code>RayClusterGroupPodsAssociationOptions</code> 是什麼?</p>
+  <p>回傳「怎麼找出某個 RayCluster 某個 group 的 Pod」的查詢條件(<code>common/association.go:113</code>):</p>
+<pre><code>func RayClusterGroupPodsAssociationOptions(instance *rayv1.RayCluster, group string) AssociationOptions {
+    return AssociationOptions{
+        client.InNamespace(instance.Namespace),          // 同一個 namespace
+        client.MatchingLabels{
+            utils.RayClusterLabelKey:   instance.Name,    // ray.io/cluster=&lt;cluster 名稱&gt;
+            utils.RayNodeGroupLabelKey: group,            // ray.io/group=&lt;group 名稱&gt;
+        },
+    }
+}</code></pre>
+  <p><code>AssociationOptions</code> 是 <code>client.ListOption</code> 的 slice,<code>.ToListOptions()</code> 展開成 <code>r.List(...)</code> 的參數。</p>
+  <ul>
+    <li><strong>controller</strong>(<code>raycluster_controller.go:1079</code>):每個 group 一開始用它列出自己的 Pod。</li>
+    <li>這也是 group B 必須沿用 <code>small-group</code> 的原因:fixture 的 <code>pod1</code>–<code>pod5</code> 標的是 <code>ray.io/group=small-group</code>,換名字 controller 就找不到它們。</li>
+  </ul>
+
+  <p class="q">測試裡也要用 <code>RayClusterGroupPodsAssociationOptions</code> 列 Pod 嗎?</p>
+  <p>不用。<code>raycluster_controller_unit_test.go</code> 的慣例是用 <code>setupTest</code> 建好的 <code>workerSelector</code>(L417,條件是 <code>ray.io/cluster=raycluster-sample</code> + <code>ray.io/group=small-group</code>):</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>寫法</th><th>次數</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>&amp;client.ListOptions{LabelSelector: workerSelector, Namespace: namespaceStr}</code></td><td>13</td><td>列 fixture 那個 worker group(<code>small-group</code>)的 Pod</td></tr>
+        <tr><td><code>client.InNamespace(namespaceStr)</code></td><td>18</td><td>列 namespace 裡全部的 Pod(含 head)</td></tr>
+        <tr><td><code>common.RayClusterGroupPodsAssociationOptions(...)</code></td><td>0(#5364 一開始用過,已換掉)</td><td>controller 自己的查詢條件</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>#5364 一開始用 controller 的函式,是為了保證測試檢查的就是 controller 認為的那批 Pod。但檔案慣例很明確,group B 剛好就是 <code>small-group</code>,開頭的 assert 也守著 fixture 前提,所以換成 <code>workerSelector</code>:</p>
+<pre><code>err = fakeClient.List(ctx, &amp;podList, &amp;client.ListOptions{
+    LabelSelector: workerSelector,
+    Namespace:     namespaceStr,
+})</code></pre>
+
+  <p class="q">為什麼 <code>workerSelector</code> 列出來的就是 group B?</p>
+  <p>因為它用 <strong>group 名稱的 label</strong> 篩選,而 group B 的名字剛好就是 <code>small-group</code>。</p>
+  <p><strong>1. <code>workerSelector</code> 篩的是 <code>small-group</code></strong>(<code>setupTest</code>,L398–417):</p>
+<pre><code>instanceReqValue := []string{instanceName}      // "raycluster-sample"
+instanceReq, _ := labels.NewRequirement(utils.RayClusterLabelKey,   selection.Equals, instanceReqValue)
+groupNameReqValue := []string{groupNameStr}     // "small-group"
+groupNameReq, _ := labels.NewRequirement(utils.RayNodeGroupLabelKey, selection.Equals, groupNameReqValue)
+
+workerSelector = labels.NewSelector().Add(*instanceReq).Add(*groupNameReq)
+// ray.io/cluster = raycluster-sample  AND  ray.io/group = small-group</code></pre>
+  <p><strong>2. group B 就是 <code>small-group</code></strong>:<code>groupB := testRayCluster.Spec.WorkerGroupSpecs[0]</code>,fixture 唯一的 group,沒有改名;只有 group A 被改成 <code>group-a</code>。</p>
+  <p><strong>3. 每個 Pod 的 label 決定會不會被篩到:</strong></p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Pod</th><th><code>ray.io/group</code></th><th>符合 <code>workerSelector</code>?</th></tr></thead>
+      <tbody>
+        <tr><td><code>headNode</code></td><td><code>head-group</code></td><td class="no">✗</td></tr>
+        <tr><td><code>pod1</code>–<code>pod5</code>(fixture)</td><td><code>small-group</code></td><td class="yes">✓</td></tr>
+        <tr><td>group A 的 Pod</td><td><code>group-a</code></td><td class="no">✗(而且建立一律失敗,根本不存在)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>前提有兩個:group B 沿用 <code>small-group</code>(改名就找不到 Pod)、fixture 的 Pod 標的是 <code>small-group</code>(<code>utils.RayNodeGroupLabelKey: groupNameStr</code>,L145 等處)。開頭的三行 assert(fixture 只有一個 group、6 個 Pod)守住這些前提,fixture 一變就先在那裡失敗。</p>
+  <div class="note">
+    <p><code>workerSelector</code> 這個名字容易讓人以為是「所有 worker」,其實只篩 <code>small-group</code> 一個 group。可以在斷言前補一句註解,例如 <code>// workerSelector selects small-group, which is group B.</code></p>
+  </div>
+
+  <h2>4. interceptor 回傳什麼錯誤、要斷言什麼</h2>
+
+  <p class="q">為什麼不直接回傳 <code>utils.ErrFailedCreateWorkerPod</code>?</p>
+  <p>這個標記是 <strong>controller 自己包上去的</strong>(L1421 <code>errstd.Join(utils.ErrFailedCreateWorkerPod, err)</code>),L1099 再靠 <code>errstd.Is</code> 認它。fake 若先給了標記,就測不到「controller 有沒有包」:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>fake <code>Create</code> 回傳</th><th>L1421 忘了包標記時</th><th>測試</th></tr></thead>
+      <tbody>
+        <tr><td>不帶標記的錯誤(<code>errors.New("exceeded quota")</code>)</td><td>沒有標記 → L1099 return → group-b 沒被刪</td><td class="yes">失敗,抓到 bug</td></tr>
+        <tr><td><code>utils.ErrFailedCreateWorkerPod</code></td><td>本來就有標記 → L1099 繼續 → group-b 被刪</td><td class="no">通過,bug 被藏起來</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p><code>TestEvents_FailedPodCreation</code> 可以回傳標記,是因為它只檢查 event(L1703 拿到錯誤就發),跟錯誤內容無關。</p>
+
+  <p class="q"><code>NewForbidden</code> 還是 <code>errors.New</code>?</p>
+  <p>repo 裡 interceptor 共 9 處,大多回傳簡單錯誤(<code>rayjob_controller_unit_test.go</code> 的 <code>errors.New("random")</code>、<code>errInjected</code>)。只有一開始的 #5364 版本用 <code>k8serrors.NewForbidden(...)</code>,風格不一致,所以改成 <code>errors.New("exceeded quota")</code>。重點是「不帶標記」,不是「一定要像 apiserver」。</p>
+
+  <p class="q"><code>break</code> 改成 <code>continue</code> 也會過?</p>
+  <p>會。<code>continue</code> 只是多試幾次,最後一樣離開內層迴圈、跑到 group-b。測試裡每次 <code>Create</code> 都失敗,所以 group-a 也沒有多建出 Pod:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th></th><th><code>break</code></th><th><code>continue</code></th></tr></thead>
+      <tbody>
+        <tr><td><code>Create</code> 被呼叫幾次(<code>diff</code>=2)</td><td>1</td><td>2</td></tr>
+        <tr><td><code>errs</code> 裡幾個錯誤</td><td>1</td><td>2</td></tr>
+        <tr><td>group-a 實際建出的 Pod</td><td>0</td><td>0</td></tr>
+        <tr><td><code>ErrorIs</code>、group-b 剩 <code>pod1, pod2, pod5</code></td><td>通過</td><td>通過</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <p>原本用 <code>createAttempts == 1</code> 分辨兩者(它抓到過第一次 L1202 寫成 <code>continue</code> 的版本)。後來判斷價值不高,<strong>拿掉了</strong>。代價:<code>continue</code> 不會再被測試擋下;reviewer 問到時再說明。</p>
+  </div>
+
+  <h2>5. 怎麼選測試層級</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>想驗證的是</th><th>用</th><th>例子</th></tr></thead>
+      <tbody>
+        <tr><td>reconciler 拿到某個輸入/錯誤後怎麼做</td><td>unit test</td><td>#5364:建立失敗後有沒有繼續處理 group-b</td></tr>
+        <tr><td>跟 apiserver 互動的細節(CRD schema、patch、status 更新、watch 觸發)</td><td>envtest</td><td>spec 改了有沒有觸發 reconcile、status 有沒有寫進去</td></tr>
+        <tr><td>需要真的排程、真的 container、真的內建 controller</td><td>e2e</td><td>Ray job 真的跑完、quota 真的擋下建立</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>原則:<strong>用能涵蓋這個行為的最低層級</strong>。越低越快、越穩定、越好除錯;越高越接近真實,但慢、容易 flaky。</p>
+</main>
+</body>
+</html>
