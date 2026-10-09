@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Node Label Delivery</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  .flow { list-style: none; padding: 0; margin: 12px 0 18px; max-width: none; counter-reset: step; }
+  .flow > li { position: relative; margin: 0 0 20px; display: grid; grid-template-columns: 1fr 220px; gap: 16px; align-items: start; }
+  .flow > li:not(:last-child)::after { content: ""; position: absolute; left: 32px; bottom: -20px; height: 20px; border-left: 1px solid var(--rule); }
+  .step { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 12px 16px; counter-increment: step; }
+  .step h4 { margin: 0 0 2px; font-size: 0.98rem; }
+  .step h4::before { content: counter(step) " · "; font-family: var(--font-mono); color: var(--muted); }
+  .step p { margin: 0; font-size: 0.88rem; color: var(--muted); }
+  .step.key { border: 2px solid var(--accent); background: var(--accent-soft); }
+  .step.key p { color: var(--ink); }
+  .side { font-size: 0.86rem; border-radius: 6px; padding: 10px 12px; background: var(--warn-soft); border-left: 3px solid var(--warn); }
+  .side strong { color: var(--warn); }
+
+  @media (max-width: 600px) {
+    .flow > li { grid-template-columns: 1fr; gap: 8px; }
+  }
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">PR 系列 · [TAS][Webhook] · #5260 → #5329 → label-prop-webhook</p>
+  <h1>Node Label Delivery</h1>
+  <p class="meta">整理自 2026-10-09 的問答 · 相關筆記:<a href="kuberay-pod-create-vs-schedule-notes.html">Pod Create vs Schedule</a></p>
+
+  <div class="verdict">
+    <p><strong>一句話:</strong>這系列 PR 讓 Ray worker 在 <code>ray start</code> 時就拿到它所在 K8s Node 的 label(zone、<code>nvidia.com/gpu.clique</code> 等)。這是在 KubeRay 上做 Topology-Aware Scheduling(TAS)的基礎。</p>
+    <ul>
+      <li>使用者在 <code>workerGroupSpecs[].labelRefs</code> 宣告要哪些 node label。</li>
+      <li>兩個 mutating webhook 合作:pod <strong>建立時</strong>先準備好接收的 env,pod <strong>bind 時</strong>才把 node label 寫進 annotation。</li>
+      <li>由 <code>NodeLabelDelivery</code> feature gate 控制(alpha,預設關閉),需要 <code>ENABLE_WEBHOOKS=true</code> 和 Ray ≥ 2.45。</li>
+    </ul>
+  </div>
+
+  <h2>1. 為什麼重要</h2>
+  <p>核心難題:<strong>node 資訊要等排程完才知道,但 <code>ray start</code> 的參數在 pod 建立時就決定了。</strong></p>
+  <ul>
+    <li>Ray 排程需要知道機器的位置和硬體拓撲。例如讓 collective 通訊留在同一個 GPU NVLink clique,或讓 placement group 留在同一個 zone。</li>
+    <li>這些資訊只在 K8s Node label 上,Ray worker 看不到。</li>
+    <li><code>workerGroupSpecs[].labels</code> 只能放靜態值。建 pod 時還不知道它會被排到哪個 node。</li>
+    <li>scheduler bind 完才知道 node,這時 pod spec 已經不能改了(見 <a href="kuberay-pod-create-vs-schedule-notes.html">Pod Create vs Schedule</a> 的兩個階段)。</li>
+  </ul>
+
+  <p class="cap">使用者介面</p>
+<pre><code>workerGroupSpecs:
+- groupName: gpu
+  labelRefs:
+  - name: ray.io/zone
+    valueFrom:
+      nodeRef:
+        fieldPath: metadata.labels['topology.kubernetes.io/zone']
+  - valueFrom:
+      nodeRef:
+        fieldPath: metadata.labels['nvidia.com/gpu.clique']  # name 預設等於 node label key</code></pre>
+
+  <h2>2. 演進脈絡</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>階段</th><th>內容</th><th>關鍵決策</th></tr></thead>
+      <tbody>
+        <tr><td><code>label-prop-webhook</code><br>(本分支,未 merge)</td><td>Pod / pods/binding webhooks、feature gate、RBAC、Helm 範本</td><td>實際的投遞機制</td></tr>
+        <tr><td>#5329<br>(2026-10-02)</td><td><code>topology.labelMappings</code> 改成 <code>labelRefs[].valueFrom.nodeRef.fieldPath</code></td><td>拿掉 topology 概念,改用原生 label 語彙;只接受 <code>metadata.labels['&lt;key&gt;']</code>;<code>podRef</code> 和 wildcard 延後</td></tr>
+        <tr><td>#5260 Webhook 1/n<br>(2026-09-15)</td><td>API 骨架 <code>topology.labelMappings</code>(<code>nodeLabel</code> → <code>mapTo</code>)</td><td>初版 API</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>#5329 拿掉 topology 的理由:node label 的用途比拓撲更廣,例如把一個 group 對應到 compute-heavy node、另一個對應到 memory-optimized node。label 也是 Ray 和 K8s 都有的詞,使用者不用再學一層新概念。</p>
+
+  <h2>3. 機制:兩段式 webhook</h2>
+  <p class="cap">一個 worker pod 從建立到 ray start</p>
+  <ol class="flow">
+    <li><div class="step"><h4>RayCluster controller 建立 worker pod</h4><p>container args 帶 KubeRay 產生的 ray start(<code>KUBERAY_GEN_RAY_START_CMD</code>)</p></div></li>
+    <li><div class="step"><h4>Pod CREATE webhook(<code>Fail</code>)</h4><p>加 env <code>RAY_NODE_LABELS_JSON</code>,用 downward API 指向 annotation <code>ray.io/node-labels</code>;改寫 ray start,先寫檔再加 <code>--labels-file</code></p></div></li>
+    <li><div class="step"><h4>Scheduler 建立 pods/binding</h4><p>這時才決定 pod 落在哪個 node</p></div></li>
+    <li><div class="step key"><h4>pods/binding webhook(<code>Ignore</code>,5s)</h4><p>讀 Node labels → 套 <code>labelRefs</code> 和 <code>allowedNodeLabels</code> 白名單 → JSON 寫進 Binding annotation</p></div>
+      <div class="side"><strong>缺 label 或不在白名單</strong><br>發 Warning event <code>RequiredNodeLabelMissing</code>,binding 照常放行,但不寫 annotation</div></li>
+    <li><div class="step"><h4>API server 套用 binding</h4><p><code>spec.nodeName</code> 和 annotation 一起寫到 pod</p></div></li>
+    <li><div class="step"><h4>容器啟動,downward API 解析 env</h4><p>寫入 <code>/tmp/ray-labels.yaml</code> → <code>ray start --labels-file</code></p></div>
+      <div class="side"><strong>沒有 annotation 時</strong><br>env 是空的 → 印出錯誤後 <code>exit 1</code>,ray 不啟動</div></li>
+  </ol>
+  <p>關鍵在時序:env 在步驟 2 就加好了,但 downward API 要到容器啟動(步驟 6)才解析,所以拿得到步驟 4 才寫進去的 annotation。</p>
+
+  <h3>前置條件與防呆</h3>
+  <ul>
+    <li><code>ValidateRayClusterSpec</code>:有 <code>labelRefs</code> 時要求 feature gate 已開啟、<code>ENABLE_WEBHOOKS=true</code>、Ray ≥ 2.45(<code>--labels-file</code> 從這版開始才有)。</li>
+    <li><code>utils.NodeLabelKey</code>:<code>fieldPath</code> 只接受 <code>metadata.labels['&lt;key&gt;']</code>。</li>
+    <li>RBAC 多了 <code>nodes get</code>;Helm 加了 cert、issuer、mutating webhook 範本。</li>
+  </ul>
+
+  <h2>4. 設計重點(review 時要看的地方)</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>重點</th><th>做法</th><th>理由</th></tr></thead>
+      <tbody>
+        <tr><td><strong>失敗策略不對稱</strong></td><td>Pod webhook <code>Fail</code>;binding webhook <code>Ignore</code> + 5s timeout</td><td>建立 pod 時可以直接擋下;binding 失敗不能卡住 scheduler,所以讓錯誤在容器啟動時才出現</td></tr>
+        <tr><td><strong>白名單</strong></td><td>operator 設定 <code>allowedNodeLabels</code></td><td>避免使用者讀取任意 node label</td></tr>
+        <tr><td><strong>binding 的熱路徑</strong></td><td>先用 pod 名稱前綴 <code>&lt;cluster&gt;-&lt;group&gt;-worker-</code> 比對 cache 中的 RayCluster</td><td>所有 pod 的 binding 都會進來,要能很快放行無關的 pod;前綴可能重複,最後還是以 pod labels 判斷 group</td></tr>
+        <tr><td><strong>冪等</strong></td><td>env 已存在、或 annotation 已存在,就直接放行</td><td>webhook 可能被重複呼叫(reinvocation)</td></tr>
+        <tr><td><strong>依賴 KubeRay 產生的 ray start</strong></td><td>找不到 <code>KUBERAY_GEN_RAY_START_CMD</code>,或 args 不只一個元素,就拒絕建立 pod</td><td>需要改寫 ray start;自訂啟動指令的使用者不能使用這個功能</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <p><strong>待確認</strong></p>
+    <ul>
+      <li>binding webhook 每次都 <code>List</code> 整個 namespace 的 RayCluster,在大型 namespace 的成本?</li>
+      <li>第三方 scheduler(Volcano、Kueue 等)是否都會建立 pods/binding?</li>
+      <li>Pod webhook 裡的 <code>TODO: vendor-specific(TPU, etc.) CREATE-time mutations</code> 之後怎麼規劃?</li>
+      <li><code>podRef</code> 和 wildcard 什麼時候重新討論?</li>
+    </ul>
+  </div>
+</main>
+</body>
+</html>
