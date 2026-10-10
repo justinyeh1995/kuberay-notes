@@ -91,6 +91,21 @@
   .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
   .note p:last-child, .note ul:last-child { margin-bottom: 0; }
 
+  .flowwrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); padding: 8px; }
+  .flow { display: block; width: 100%; min-width: 640px; height: auto; }
+  .flow .box { fill: var(--bg); stroke: var(--rule); stroke-width: 1; }
+  .flow .op { fill: var(--accent); }
+  .flow .api { fill: var(--muted); }
+  .flow .pod { fill: var(--warn); }
+  .flow .num { fill: var(--surface); stroke: var(--ink); stroke-width: 1.2; }
+  .flow .numt { fill: var(--ink); font-family: var(--font-mono); font-size: 13px; font-weight: 500; text-anchor: middle; }
+  .flow .t { fill: var(--ink); font-family: var(--font-mono); font-size: 14px; font-weight: 500; }
+  .flow .d { fill: var(--ink); font-family: var(--font-body); font-size: 13px; }
+  .flow .r { fill: var(--muted); font-family: var(--font-mono); font-size: 11.5px; }
+  .flow .tag { fill: var(--muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-anchor: end; }
+  .flow .arrow { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+  .flow .head { fill: var(--muted); }
+
   @media (max-width: 480px) {
     h1 { font-size: 1.6rem; }
     body { padding-block: 28px 56px; }
@@ -100,7 +115,11 @@
 <main>
   <p class="eyebrow">KubeRay PR #5215 · IPv6 support</p>
   <h1>PR 5215 IPv6 Review Notes</h1>
-  <p class="meta">整理自 2026-09-24 ~ 09-27 的問答 · PR <a href="https://github.com/ray-project/kuberay/pull/5215">#5215</a> by 400Ping · 行號以 commit <code>98e34846</code> 為準</p>
+  <p class="meta">整理自 2026-09-24 ~ 09-27 的問答 · PR <a href="https://github.com/ray-project/kuberay/pull/5215">#5215</a> by 400Ping · 第 1–7 節行號以 commit <code>98e34846</code> 為準 · 第 8 節為 2026-10-10 更新,以 <code>4e0f947d</code> 為準</p>
+
+  <div class="note">
+    <p><strong>2026-10-10 更新:</strong>作者在 <code>fd81d104</code> 採用了第 3 節的替代方案,operator 改從 head Service 的 IP family 決定 <code>dashboard-host</code>,<code>eval</code> 和啟動時的 shell 片段都拿掉了。第 2、3 節關於 <code>eval</code> 的內容是歷史紀錄,最新的流程看<a href="#flow">第 8 節</a>。</p>
+  </div>
 
   <div class="verdict">
     <p><strong>一句話:</strong>Ray 2.56 起本身支援 IPv6,但 KubeRay 產生的設定寫死了 IPv4 假設(<code>dashboard-host: 0.0.0.0</code>、<code>host:port</code> 字串拼接、只適用 IPv4 的 SAN grep)。這個 PR 拿掉這些假設,方向正確;最大的問題是為了在 Pod 啟動時判斷 IP family 而在 <code>KUBERAY_GEN_RAY_START_CMD</code> 前面加了 <code>eval</code>,會弄壞現有使用者(包括 IPv4)。</p>
@@ -148,6 +167,8 @@
         <tr><td><code>a949a25c</code></td><td>CI 拿掉 kind node 的 DNS <code>search</code> 行(只改一行 YAML)</td><td>✅</td></tr>
         <tr><td><code>2b855747</code></td><td>拿掉 <code>node-ip-address</code> 預設值(回應 machichima)</td><td>✅</td></tr>
         <tr><td><code>98e34846</code></td><td>回應我的 review:mTLS table test、印出 openssl 錯誤</td><td>—</td></tr>
+        <tr><td><code>fd81d104</code></td><td>從 head Service 的 IP family 決定 <code>dashboard-host</code>,拿掉 <code>eval</code> 和 shell 片段</td><td>—</td></tr>
+        <tr><td><code>4e0f947d</code></td><td>unit test 補 head Service(<code>newTestHeadService</code>)</td><td>✅</td></tr>
       </tbody>
     </table>
   </div>
@@ -245,8 +266,9 @@ bash -c 'exec bash -lc "${X}"'
       <tbody>
         <tr><td><code>raycluster_mtls_controller_test.go:319</code></td><td>保留 IPv4 測試,改成 table test</td><td>✅ 作者已改(98e3484)</td></tr>
         <tr><td><code>pod.go:527</code></td><td>驗證範圍變大是否故意?印出 openssl 錯誤</td><td>✅ 作者已改並說明</td></tr>
-        <tr><td><code>pod.go:932</code></td><td>片段應放進 <code>generateRayStartCommand</code> 或補 log;overwrite 路徑下 L1492 的 log 不完整</td><td>等回覆</td></tr>
-        <tr><td><code>pod.go:1340</code></td><td><code>eval</code> breaking change + GKE / Azure 例子 + 最小重現 + <code>spec.ipFamilies</code> 替代方案</td><td>等回覆</td></tr>
+        <tr><td><code>pod.go:932</code></td><td>片段應放進 <code>generateRayStartCommand</code> 或補 log;overwrite 路徑下 L1492 的 log 不完整</td><td>不再適用:片段在 <code>fd81d104</code> 拿掉了</td></tr>
+        <tr><td><code>pod.go:1340</code></td><td><code>eval</code> breaking change + GKE / Azure 例子 + 最小重現 + <code>spec.ipFamilies</code> 替代方案</td><td>✅ 作者在 <code>fd81d104</code> 採用替代方案</td></tr>
+        <tr><td><code>raycluster_controller_unit_test.go</code>(<code>newTestHeadService</code>)</td><td>nit:可重用 <code>setupTest</code> 建好的 <code>testServices</code></td><td>pending,還沒送出</td></tr>
       </tbody>
     </table>
   </div>
@@ -262,6 +284,159 @@ bash -c 'exec bash -lc "${X}"'
       <li>checklist 的 <code>breaking-change</code>、<code>doc-updates-required</code> label 值得討論。</li>
       <li>不用再提:glob <code>*:*</code> 被工作目錄檔名展開的邊界情況(機率太低)、<code>normalizeIPs</code> 條件寫法(nit)。</li>
     </ul>
+  </div>
+
+  <h2 id="flow">8. 最新版流程(2026-10-10,commit 4e0f947d)</h2>
+
+  <div class="verdict">
+    <p><strong>一句話:</strong>operator 先建 head Service,API server 幫它填上 IP family,operator 建 head Pod 前讀這個 family,直接把 <code>::</code> 或 <code>0.0.0.0</code> 寫進 <code>ray start</code> 的參數。判斷發生在 operator 裡,Pod 啟動時不再需要 shell。</p>
+  </div>
+
+  <p class="q">dashboard-host 是怎麼決定的?</p>
+  <div class="flowwrap">
+    <svg class="flow" viewBox="0 0 720 792" role="img" aria-label="PR 5215 決定 dashboard-host 的七個步驟:operator 建 head Service、API server 填入 ipFamilies、operator 在建 head Pod 前讀取 family、依 family 填 dashboard-host、Pod 以該值啟動 Ray、dashboard 在 IPv6 上 listen">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="5" refY="9" markerWidth="8" markerHeight="8">
+          <path class="head" d="M0,0 L10,0 L5,10 z"/>
+        </marker>
+      </defs>
+
+      <!-- 1 -->
+      <rect class="box" x="16" y="8" width="688" height="84" rx="6"/>
+      <rect class="op" x="16" y="8" width="4" height="84"/>
+      <circle class="num" cx="46" cy="36" r="13"/><text class="numt" x="46" y="40.5">1</text>
+      <text class="t" x="72" y="34">reconcileHeadService</text>
+      <text class="tag" x="690" y="33">OPERATOR</text>
+      <text class="d" x="72" y="57">建立 head Service,spec 裡不指定 ipFamilies</text>
+      <text class="r" x="72" y="77">raycluster_controller.go:365 → :609</text>
+      <path class="arrow" d="M46,92 L46,119" marker-end="url(#ah)"/>
+
+      <!-- 2 -->
+      <rect class="box" x="16" y="120" width="688" height="84" rx="6"/>
+      <rect class="api" x="16" y="120" width="4" height="84"/>
+      <circle class="num" cx="46" cy="148" r="13"/><text class="numt" x="46" y="152.5">2</text>
+      <text class="t" x="72" y="146">Service.spec.ipFamilies = [IPv6]</text>
+      <text class="tag" x="690" y="145">API SERVER</text>
+      <text class="d" x="72" y="169">API server 依 cluster 的網路設定自動填入 family</text>
+      <text class="r" x="72" y="189">IPv6-only cluster → 只有一個值 IPv6;IPv4 cluster → IPv4</text>
+      <path class="arrow" d="M46,204 L46,231" marker-end="url(#ah)"/>
+
+      <!-- 3 -->
+      <rect class="box" x="16" y="232" width="688" height="84" rx="6"/>
+      <rect class="op" x="16" y="232" width="4" height="84"/>
+      <circle class="num" cx="46" cy="260" r="13"/><text class="numt" x="46" y="264.5">3</text>
+      <text class="t" x="72" y="258">reconcilePods → createHeadPod</text>
+      <text class="tag" x="690" y="257">OPERATOR</text>
+      <text class="d" x="72" y="281">同一輪 reconcile 的後段;沒有 head Pod 時才會建</text>
+      <text class="r" x="72" y="301">raycluster_controller.go:369 → :1053 → :1632</text>
+      <path class="arrow" d="M46,316 L46,343" marker-end="url(#ah)"/>
+
+      <!-- 4 -->
+      <rect class="box" x="16" y="344" width="688" height="104" rx="6"/>
+      <rect class="op" x="16" y="344" width="4" height="104"/>
+      <circle class="num" cx="46" cy="372" r="13"/><text class="numt" x="46" y="376.5">4</text>
+      <text class="t" x="72" y="370">getHeadServiceIPFamily</text>
+      <text class="tag" x="690" y="369">OPERATOR</text>
+      <text class="d" x="72" y="393">List head Service;找不到就回 error,這一輪不建 Pod,等下次 reconcile</text>
+      <text class="d" x="72" y="413">找到 → 取 ipFamilies[0];沒有就看 ClusterIP;都沒有就當 IPv4</text>
+      <text class="r" x="72" y="433">raycluster_controller.go:2147 · utils/util.go:1116 GetServiceIPFamily</text>
+      <path class="arrow" d="M46,448 L46,475" marker-end="url(#ah)"/>
+
+      <!-- 5 -->
+      <rect class="box" x="16" y="476" width="688" height="84" rx="6"/>
+      <rect class="op" x="16" y="476" width="4" height="84"/>
+      <circle class="num" cx="46" cy="504" r="13"/><text class="numt" x="46" y="508.5">5</text>
+      <text class="t" x="72" y="502">setMissingRayStartParams</text>
+      <text class="tag" x="690" y="501">OPERATOR</text>
+      <text class="d" x="72" y="525">使用者沒設 dashboard-host 才填:IPv6 → "::",其他 → "0.0.0.0"</text>
+      <text class="r" x="72" y="545">buildHeadPod :1718 → DefaultHeadPodTemplate pod.go:265 → :1404</text>
+      <path class="arrow" d="M46,560 L46,587" marker-end="url(#ah)"/>
+
+      <!-- 6 -->
+      <rect class="box" x="16" y="588" width="688" height="84" rx="6"/>
+      <rect class="pod" x="16" y="588" width="4" height="84"/>
+      <circle class="num" cx="46" cy="616" r="13"/><text class="numt" x="46" y="620.5">6</text>
+      <text class="t" x="72" y="614">ray start --head --dashboard-host=::</text>
+      <text class="tag" x="690" y="613">HEAD POD</text>
+      <text class="d" x="72" y="637">值已經寫死在 Pod spec 裡,啟動時沒有 shell 判斷,也沒有 eval</text>
+      <text class="r" x="72" y="657">同一個 container 的 env:RAY_ADDRESS=localhost:6379(pod.go:1337)</text>
+      <path class="arrow" d="M46,672 L46,699" marker-end="url(#ah)"/>
+
+      <!-- 7 -->
+      <rect class="box" x="16" y="700" width="688" height="84" rx="6"/>
+      <rect class="pod" x="16" y="700" width="4" height="84"/>
+      <circle class="num" cx="46" cy="728" r="13"/><text class="numt" x="46" y="732.5">7</text>
+      <text class="t" x="72" y="726">dashboard listen [::]:8265</text>
+      <text class="tag" x="690" y="725">HEAD POD</text>
+      <text class="d" x="72" y="749">Pod 外經 head Service 的 DNS 名稱連得到:operator、job submitter、curl</text>
+      <text class="r" x="72" y="769">E2E:RayService Ready(operator 送 Serve config)、localhost:8265/api/gcs_healthz</text>
+    </svg>
+  </div>
+  <p class="cap">左邊色條:綠 = operator,灰 = API server,橘 = head Pod。右上角文字是同一個資訊。</p>
+
+  <p class="q">走一次:IPv6-only cluster,rayStartParams 是空的</p>
+  <p>這就是 <code>TestRayClusterIPv6</code> 的情境(它刻意把 <code>RayStartParams</code> 清成空 map)。</p>
+  <ol>
+    <li>使用者 apply RayCluster。reconcile 依 <code>reconcileFuncs</code> 的順序跑,<code>reconcileHeadService</code> 排在 <code>reconcilePods</code> 前面,所以先送出建 head Service 的請求。</li>
+    <li>API server 收到的 Service 沒有 <code>ipFamilies</code>。cluster 是 IPv6-only,API server 存下來的物件就會是 <code>ipFamilies: [IPv6]</code>。</li>
+    <li>同一輪 reconcile 走到 <code>reconcilePods</code>,發現 0 個 head Pod,呼叫 <code>createHeadPod</code>。</li>
+    <li><code>createHeadPod</code> 第一件事是 <code>getHeadServiceIPFamily</code>。它用 label List head Service。如果 operator 的 cache 還沒看到步驟 1 建的 Service,這裡會回 error,<code>reconcilePods</code> 把它包成 <code>ErrFailedCreateHeadPod</code>,這一輪結束,下一輪再來。看得到時,<code>GetServiceIPFamily</code> 回傳 <code>IPv6</code>。</li>
+    <li>family 一路傳到 <code>setMissingRayStartParams</code>。<code>rayStartParams</code> 裡沒有 <code>dashboard-host</code>,所以填入 <code>defaultDashboardHost(IPv6)</code> = <code>"::"</code>。</li>
+    <li><code>generateRayStartCommand</code> 把參數組成 <code>ray start --head --dashboard-host=:: … --block</code> 寫進 Pod spec。Pod 起來後直接執行這行。</li>
+    <li>dashboard 在所有 IPv6 介面 listen。之後 operator 和 submitter 用 <code>&lt;head-svc&gt;.&lt;ns&gt;.svc.&lt;domain&gt;:8265</code> 這個 DNS 名稱連進來,DNS 回 AAAA 記錄,連得到。</li>
+  </ol>
+
+  <p class="q">IPv4 cluster 走同一條路,有什麼不同?</p>
+  <p>步驟 2 填的是 <code>[IPv4]</code>,步驟 5 填 <code>0.0.0.0</code>,和 PR 之前的結果一樣。IPv4 使用者看得到的差別有兩個:</p>
+  <ul>
+    <li>建 head Pod 前多一次 List Service,找不到 Service 時會晚一輪才建 Pod。</li>
+    <li>head container 的 <code>RAY_ADDRESS</code> 從 <code>127.0.0.1:6379</code> 變成 <code>localhost:6379</code>。</li>
+  </ul>
+  <div class="note">
+    <p>步驟 5 只在使用者<strong>沒設</strong> <code>dashboard-host</code> 時才生效。helm chart 和 samples 裡寫死 <code>dashboard-host: "0.0.0.0"</code> 的設定,拿到 IPv6-only cluster 上不會自動變成 <code>::</code>(第 5 節提過,仍然成立)。</p>
+  </div>
+
+  <p class="q">主流程以外,同一個 PR 的其他 IPv6 改動</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>改動</th><th>位置</th><th>作用</th></tr></thead>
+      <tbody>
+        <tr><td><code>LOCAL_HOST</code>:<code>127.0.0.1</code> → <code>localhost</code></td><td><code>utils/constant.go:304</code>,唯一使用點 <code>common/pod.go:1255</code></td><td>只影響 head 的 <code>RAY_ADDRESS</code> 預設值。worker 用 FQDN,不受影響</td></tr>
+        <tr><td>Sidecar submitter 位址改 <code>http://localhost:&lt;port&gt;</code></td><td><code>common/job.go:100</code></td><td>RayJob <code>SidecarMode</code> 在 head Pod 內連 dashboard</td></tr>
+        <tr><td>Serve proxy URL 用 <code>net.JoinHostPort</code></td><td><code>utils/util.go:1131</code></td><td>IPv6 literal 會自動加中括號</td></tr>
+        <tr><td><code>normalizeIPs</code> 依 Pod IP family 加 <code>127.0.0.1</code> / <code>::1</code></td><td><code>raycluster_mtls_controller.go:567</code></td><td>mTLS 憑證 SAN 包含對應的 loopback</td></tr>
+        <tr><td>init container 用 <code>openssl verify -verify_ip</code></td><td><code>common/pod.go:519</code></td><td>等憑證含 Pod IP 才啟動,IPv6 也比對得到</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="q">E2E 過了,可以當作功能面支援成功嗎?</p>
+  <p>PR 描述寫的是「adds IPv6-only support」,dual-stack 不在範圍內。在這個範圍內,證據足夠。IPv6 job(<code>test-raycluster-ipv6-e2e-nightly-operator</code>)在 <code>4e0f947d</code> 上是 SUCCESS,跑在 <code>ipFamily: ipv6</code> 的 kind cluster 上。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>測試</th><th>驗證到的事</th><th>對應步驟</th></tr></thead>
+      <tbody>
+        <tr><td><code>TestRayClusterIPv6</code></td><td>Pod 只有 IPv6;Ray node 位址等於 Pod IP;task 排到 worker 並傳回 16MB object;head 內 <code>ray status</code> 和 <code>localhost:8265</code> 都通</td><td>1–7,加上 <code>RAY_ADDRESS=localhost</code></td></tr>
+        <tr><td><code>TestRayClusterTLSIPv6</code></td><td>同上,加 mTLS 和 <code>wait-for-tls-ip-san</code> init container 成功</td><td>mTLS SAN、<code>openssl verify</code></td></tr>
+        <tr><td><code>TestRayServiceIPv6</code></td><td>RayService Ready;curl Pod 打 Serve 拿到 <code>ipv6-ok</code></td><td>7(dashboard 從 Pod 外連得到)、Serve proxy URL</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li>現有 IPv4 E2E 全過,代表步驟 3–5 的改動和 <code>localhost</code> 沒有造成 IPv4 regression。</li>
+    <li><strong>還沒確認:</strong>這三個測試沒設 <code>KUBERAY_TEST_IPV6=true</code> 會 <code>t.Skip</code>。pipeline 有設,但我沒打開 Buildkite log 看是 PASS 還是 SKIP。</li>
+    <li>沒有 E2E 的部分:RayService 跨節點(測試把 worker 拿掉了)、GCS FT 的 Redis cleanup Job(找不到 head Service 時 fallback 成 IPv4,但那個 Job 會覆寫 command,<code>dashboard-host</code> 不影響)。兩個都不值得擋 PR。</li>
+  </ul>
+
+  <p class="q">原本以為是缺口,查完發現不是的</p>
+  <ul>
+    <li><strong>RayJob submitter:</strong><code>K8sJobMode</code> 用 <code>ray job submit --address http://&lt;head-svc FQDN&gt;:8265</code>(<code>utils/util.go:1052</code>),是 DNS 名稱,這段 PR 沒動。它只依賴步驟 7,而 <code>TestRayServiceIPv6</code> 已經證明 operator 走同一條路連得到。<code>SidecarMode</code> 改用 <code>localhost</code>,<code>TestRayClusterIPv6</code> 在 head 內打 <code>localhost:8265</code> 驗過同一件事。</li>
+    <li><strong>Autoscaler sidecar:</strong>KubeRay 沒有注入位址給它(<code>common/pod.go:973</code>,指令只有 cluster name 和 namespace),PR 對它只改了註解。怎麼找到 GCS 是 Ray 的邏輯。</li>
+    <li><strong><code>newTestHeadService</code>:</strong>因為步驟 4,會建 head Pod 的 unit test 都要先有 head Service,所以補 Service 是必要的。helper 本身和 <code>setupTest</code> 裡的 <code>testServices</code> 重複(<code>raycluster_controller_unit_test.go:393–403</code>)。把五處換成 <code>testServices</code> 在本機跑過,五個測試都過。屬於 nit。</li>
+  </ul>
+
+  <div class="note">
+    <p><strong>剩下值得問的一點:</strong>head Pod 的 <code>RAY_ADDRESS</code> 預設值變了。operator 升級後,既有 cluster 的 head Pod 會不會因為 Pod template 不同而被重建?我還沒讀 hash 的計算邏輯,不確定。</p>
   </div>
 </main>
 </body>
