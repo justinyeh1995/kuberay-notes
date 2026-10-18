@@ -489,6 +489,39 @@ bash -c 'exec bash -lc "${X}"'
     <li><strong>什麼時候恢復:</strong><code>:393–400</code> 優先回傳 <code>reconcileErr</code>,controller-runtime 用 backoff requeue。另外 <code>SetupWithManager</code> 有 <code>Owns(&amp;corev1.Service{})</code>(<code>:1959</code>),Service 進 cache 時本身就會觸發 reconcile,通常比 backoff 早。</li>
   </ol>
 
+  <p class="q">condition 要去哪裡看?</p>
+  <p>RayCluster 這個 CR 的 <code>.status.conditions</code>,不是 Pod 或 Service 的 status。設進去的內容(<code>raycluster_controller.go:1994–1999</code>):</p>
+<pre><code>status:
+  conditions:
+  - type: ReplicaFailure        # rayv1.RayClusterReplicaFailure, raycluster_types.go:749
+    status: "True"
+    reason: FailedCreateHeadPod
+    message: &lt;整串 error,包含「unable to find head service ...」&gt;</code></pre>
+<pre><code>kubectl get raycluster &lt;name&gt; -o jsonpath='{.status.conditions}'
+kubectl describe raycluster &lt;name&gt;   # Status 底下的 Conditions</code></pre>
+  <p>它很短暫:Service 進 cache 會觸發下一輪 reconcile,成功後就被移除,事後 <code>get</code> 大概看不到。要親眼看到得在建 cluster 前先開 <code>kubectl get raycluster &lt;name&gt; -o yaml -w</code>,而且 cache 不一定每次都慢,不保證重現。</p>
+
+  <p class="q">發生一次會留下什麼?</p>
+  <p>從程式碼判斷(operator 預設不是 development 模式,<code>main.go:134</code> 沒設 <code>Development</code>;controller-runtime v0.25.0):</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>來源</th><th>內容</th><th>位置</th></tr></thead>
+      <tbody>
+        <tr><td>KubeRay</td><td>Error log「Error reconcile resources」,<code>function name</code> 是 <code>reconcilePods</code></td><td><code>raycluster_controller.go:376</code></td></tr>
+        <tr><td>KubeRay</td><td>Info log「Reconciliation error」</td><td><code>raycluster_controller.go:1984</code></td></tr>
+        <tr><td>controller-runtime</td><td>Error log「Reconciler error」</td><td><code>internal/controller/controller.go:497</code></td></tr>
+        <tr><td>controller-runtime</td><td>Info log:同時回傳 <code>RequeueAfter</code> 和 error 的警告。KubeRay 任何 reconcile error 都會這樣,不是這個 PR 新增的</td><td><code>controller.go:494–496</code>、<code>raycluster_controller.go:404</code></td></tr>
+        <tr><td>metrics</td><td><code>controller_runtime_reconcile_errors_total</code> +1、<code>controller_runtime_reconcile_total{result="error"}</code> +1</td><td><code>controller.go:492–493</code></td></tr>
+        <tr><td>status</td><td><code>ReplicaFailure</code> condition,下一輪移除</td><td>見上</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li>非 development 模式下,Error 等級的 log 會附 stacktrace(<code>pkg/log/zap/zap.go:197–199</code>),所以兩筆 Error log 都會帶一大段 stack。</li>
+    <li>回傳 error 時 <code>RequeueAfter</code> 會被忽略,改用 rate limiter 的 backoff requeue;加上 <code>Owns(Service)</code> 的 watch,很快就會再跑。</li>
+    <li><strong>功能上沒影響</strong>,下一輪就建出 head Pod。影響在可觀測性:這些 log 和 metric 本來就會在真正出錯時出現,這個 PR 讓它們在幾乎每個新 cluster 建立時都可能出現一次。有人對 <code>reconcile_errors_total</code> 設 alert,或對 operator 的 Error log 設 alert,就會收到假警報。</li>
+  </ul>
+
   <p class="q">怎麼回?</p>
   <p>想讓作者自己去發現 condition 的影響,用帶提示的問句。純開放式的「any side effect?」他可能照 bugbot 的角度只回「just requeues」,要多來回一次。</p>
   <p class="cap">回覆草稿(帶提示的問句)</p>
