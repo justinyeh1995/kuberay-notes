@@ -401,6 +401,20 @@ bash -c 'exec bash -lc "${X}"'
     <p>步驟 5 只在使用者<strong>沒設</strong> <code>dashboard-host</code> 時才生效。helm chart 和 samples 裡寫死 <code>dashboard-host: "0.0.0.0"</code> 的設定,拿到 IPv6-only cluster 上不會自動變成 <code>::</code>(第 5 節提過,仍然成立)。</p>
   </div>
 
+  <p class="q">所以就是 IPv6 時 URL 變成 <code>http://localhost::</code>?</p>
+  <p>不是,這個組合不存在。PR 改的是兩件不同的事,一個管「聽」,一個管「連」。</p>
+  <ul>
+    <li><strong>聽在哪裡(server 端):<code>0.0.0.0</code> → <code>::</code>。</strong><code>--dashboard-host</code> 是 dashboard 要 bind 的位址,不是 URL。<code>0.0.0.0</code> 聽所有 IPv4 介面,<code>::</code> 聽所有 IPv6 介面。只有 IPv6 cluster 會變,結果是 dashboard 在 <code>[::]:8265</code> 等連線。<code>::</code> 是 wildcard,只拿來 bind,不會出現在 URL 裡。</li>
+    <li><strong>從哪裡連(client 端):<code>127.0.0.1</code> → <code>localhost</code>。</strong>同一個 Pod 裡要連 dashboard 或 GCS 的地方,原本寫死 IPv4 loopback。head 的 <code>RAY_ADDRESS</code> 從 <code>127.0.0.1:6379</code> 變成 <code>localhost:6379</code>,sidecar submitter 從 <code>http://127.0.0.1:8265</code> 變成 <code>http://localhost:8265</code>。<code>localhost</code> 依 Pod 設定解析成 <code>127.0.0.1</code> 或 <code>::1</code>;IPv6-only Pod 沒有 <code>127.0.0.1</code> 可連。這項不分 family,IPv4 cluster 也會拿到新值。</li>
+    <li><strong>真的要把 IPv6 位址寫進 URL 時:加中括號。</strong>Serve proxy 用 Pod IP 組 URL,改用 <code>net.JoinHostPort</code>。</li>
+  </ul>
+<pre><code>http://fd00:10:244::5:8000/     ← 舊寫法,port 和位址分不開
+http://[fd00:10:244::5]:8000/   ← 新寫法</code></pre>
+  <p class="cap">串起來看(IPv6-only Pod)</p>
+<pre><code>dashboard:  bind [::]:8265                 (聽所有 IPv6 介面)
+submitter:  http://localhost:8265          → 解析成 [::1]:8265 → 連得到
+operator:   http://&lt;head-svc FQDN&gt;:8265  → DNS 回 AAAA → 連得到</code></pre>
+
   <p class="q">主流程以外,同一個 PR 的其他 IPv6 改動</p>
   <div class="tablewrap">
     <table>
@@ -442,6 +456,7 @@ bash -c 'exec bash -lc "${X}"'
 
   <div class="note">
     <p><strong>剩下值得問的一點:</strong>head Pod 的 <code>RAY_ADDRESS</code> 預設值變了。operator 升級後,既有 cluster 的 head Pod 會不會因為 Pod template 不同而被重建?我還沒讀 hash 的計算邏輯,不確定。</p>
+    <p><strong>2026-10-18 查完:不會。</strong>重建判斷用的 hash 是拿使用者寫的 <code>RayClusterSpec</code> 算的(<code>raycluster_controller.go:936</code>、<code>utils/util.go:647</code>),不是 operator 產生的 Pod。<code>RAY_ADDRESS</code> 是 operator 加的 env,不在 hash 裡。既有 head Pod 繼續用舊值,下次重建才拿到新值。</p>
   </div>
 
   <h2 id="followup">9. 作者回覆之後(2026-10-18,PR head 3dd053c7)</h2>
@@ -546,7 +561,7 @@ kubectl describe raycluster &lt;name&gt;   # Status 底下的 Conditions</code><
       <li>resolve <code>testServices</code> 那則。</li>
       <li>回 log script 那則(留在這個 PR,共用 collector 當 follow-up)。</li>
       <li>自己 trace 完 bugbot 那條路徑後,回 bugbot 那則。</li>
-      <li>仍未確認:Buildkite log 裡三個 IPv6 測試是 PASS 不是 SKIP;<code>RAY_ADDRESS</code> 改變會不會讓升級後的既有 head Pod 被重建。</li>
+      <li>仍未確認:Buildkite log 裡三個 IPv6 測試是 PASS 不是 SKIP。(<code>RAY_ADDRESS</code> 會不會讓升級後的 head Pod 重建:已查,不會,見第 8 節最後。)</li>
     </ul>
   </div>
 </main>
