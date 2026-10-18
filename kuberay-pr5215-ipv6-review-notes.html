@@ -115,7 +115,7 @@
 <main>
   <p class="eyebrow">KubeRay PR #5215 · IPv6 support</p>
   <h1>PR 5215 IPv6 Review Notes</h1>
-  <p class="meta">整理自 2026-09-24 ~ 09-27 的問答 · PR <a href="https://github.com/ray-project/kuberay/pull/5215">#5215</a> by 400Ping · 第 1–7 節行號以 commit <code>98e34846</code> 為準 · 第 8 節為 2026-10-10 更新,以 <code>4e0f947d</code> 為準</p>
+  <p class="meta">整理自 2026-09-24 ~ 09-27 的問答 · PR <a href="https://github.com/ray-project/kuberay/pull/5215">#5215</a> by 400Ping · 第 1–7 節行號以 commit <code>98e34846</code> 為準 · 第 8 節為 2026-10-10 更新,以 <code>4e0f947d</code> 為準 · 第 9 節為 2026-10-18 作者回覆後的追蹤</p>
 
   <div class="note">
     <p><strong>2026-10-10 更新:</strong>作者在 <code>fd81d104</code> 採用了第 3 節的替代方案,operator 改從 head Service 的 IP family 決定 <code>dashboard-host</code>,<code>eval</code> 和啟動時的 shell 片段都拿掉了。第 2、3 節關於 <code>eval</code> 的內容是歷史紀錄,最新的流程看<a href="#flow">第 8 節</a>。</p>
@@ -169,6 +169,9 @@
         <tr><td><code>98e34846</code></td><td>回應我的 review:mTLS table test、印出 openssl 錯誤</td><td>—</td></tr>
         <tr><td><code>fd81d104</code></td><td>從 head Service 的 IP family 決定 <code>dashboard-host</code>,拿掉 <code>eval</code> 和 shell 片段</td><td>—</td></tr>
         <tr><td><code>4e0f947d</code></td><td>unit test 補 head Service(<code>newTestHeadService</code>)</td><td>✅</td></tr>
+        <tr><td><code>13e66a69</code></td><td>回應我的 nit:刪掉 <code>newTestHeadService</code>,五處改用 <code>testServices</code></td><td>—</td></tr>
+        <tr><td><code>9288cca2</code></td><td>merge master(這個 commit 編譯不過:master 新測試用舊的 <code>buildHeadPod</code> 簽名)</td><td>—</td></tr>
+        <tr><td><code>3dd053c7</code></td><td>修 merge 後的 <code>buildHeadPod</code> 呼叫點和一行縮排</td><td>—</td></tr>
       </tbody>
     </table>
   </div>
@@ -268,7 +271,9 @@ bash -c 'exec bash -lc "${X}"'
         <tr><td><code>pod.go:527</code></td><td>驗證範圍變大是否故意?印出 openssl 錯誤</td><td>✅ 作者已改並說明</td></tr>
         <tr><td><code>pod.go:932</code></td><td>片段應放進 <code>generateRayStartCommand</code> 或補 log;overwrite 路徑下 L1492 的 log 不完整</td><td>不再適用:片段在 <code>fd81d104</code> 拿掉了</td></tr>
         <tr><td><code>pod.go:1340</code></td><td><code>eval</code> breaking change + GKE / Azure 例子 + 最小重現 + <code>spec.ipFamilies</code> 替代方案</td><td>✅ 作者在 <code>fd81d104</code> 採用替代方案</td></tr>
-        <tr><td><code>raycluster_controller_unit_test.go</code>(<code>newTestHeadService</code>)</td><td>nit:可重用 <code>setupTest</code> 建好的 <code>testServices</code></td><td>pending,還沒送出</td></tr>
+        <tr><td><code>raycluster_controller_unit_test.go</code>(<code>newTestHeadService</code>)</td><td>nit:可重用 <code>setupTest</code> 建好的 <code>testServices</code></td><td>✅ 作者已改(<code>13e66a69</code>),可 resolve</td></tr>
+        <tr><td><code>.buildkite/collect-ipv6-e2e-logs.sh</code></td><td>問遇到的 IPv6 失敗和各種 log 的關聯</td><td>作者已回答,待回覆(見第 9 節)</td></tr>
+        <tr><td><code>raycluster_controller.go:1642</code>(Cursor Bugbot)</td><td>head Pod 建立和 Service cache 的 race</td><td>作者未回,我要回(見第 9 節)</td></tr>
       </tbody>
     </table>
   </div>
@@ -437,6 +442,79 @@ bash -c 'exec bash -lc "${X}"'
 
   <div class="note">
     <p><strong>剩下值得問的一點:</strong>head Pod 的 <code>RAY_ADDRESS</code> 預設值變了。operator 升級後,既有 cluster 的 head Pod 會不會因為 Pod template 不同而被重建?我還沒讀 hash 的計算邏輯,不確定。</p>
+  </div>
+
+  <h2 id="followup">9. 作者回覆之後(2026-10-18,PR head 3dd053c7)</h2>
+
+  <div class="verdict">
+    <p><strong>一句話:</strong>作者說要做的都做了。新的待處理是 Cursor Bugbot 指出的 cache race:不會卡死,但新建 cluster 時 status 可能短暫出現 <code>ReplicaFailure</code>。</p>
+  </div>
+
+  <p class="q">作者有照他說的做嗎?</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Thread</th><th>作者說的</th><th>實際</th></tr></thead>
+      <tbody>
+        <tr><td><code>testServices</code> nit</td><td>「Done」</td><td>✅ <code>13e66a69</code> 刪掉 helper,五處寫法和我的 suggestion 一樣,沒有改別的</td></tr>
+        <tr><td><code>eval</code></td><td>改讀 head Service 的 <code>spec.ipFamilies</code></td><td>✅ <code>fd81d104</code>,第 8 節逐行讀過</td></tr>
+        <tr><td>log 收集 script</td><td>附 <a href="https://buildkite.com/ray-project/ray-ecosystem-ci-kuberay-ci/builds/16903/list">build 16903</a>,逐項說明每種 log 抓到什麼</td><td>和 <code>a949a25c</code>(拿掉 kind node 的 <code>search</code> 行)對得起來。我沒打開 build log 核對</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="q">log 收集 script:拉出去還是留著?</p>
+  <p>作者說的 root cause:CI host 的 <code>search us-west-2.compute.internal</code> 漏進 kind node,CoreDNS 把帶後綴的查詢轉給 IPv6 Pod 連不到的 IPv4 upstream,回 SERVFAIL;gRPC 的 c-ares 遇到 SERVFAIL 不會改查原始名稱。operator log 完全正常,只有 init container log 和 <code>kind export logs</code> 看得到問題。</p>
+  <p>決定:<strong>留在這個 PR</strong>,共用 collector 做成 follow-up。理由:</p>
+  <ul>
+    <li>只有這個 PR 新增的兩個 IPv6 step 在用(<code>test-e2e.yml:38</code>、<code>:40</code>)。拉出去的話,新 step 失敗時沒有任何診斷資料,因為它沒有保留 IPv4 step 那段手動 <code>kubectl logs</code>。</li>
+    <li>36 行,<code>set +e</code>,只在失敗時跑,最後 <code>exit 0</code>,失敗狀態靠外面的 <code>&amp;&amp; exit 1</code> 保留。不會把成功的 build 變成失敗,也不會吃掉失敗訊號。</li>
+  </ul>
+  <p class="cap">回覆草稿</p>
+<pre><code>Thanks for the details, that makes sense. I'm fine keeping it in this PR since it only runs for the new IPv6 step and that's exactly where we need the extra diagnostics. Making it a shared collector for all e2e jobs sounds good as a follow-up.</code></pre>
+
+  <p class="q">Bugbot:head Pod 建立和 Service cache 的 race</p>
+  <p>就是第 8 節流程圖的步驟 4:同一輪剛建的 head Service 可能還不在 informer cache,<code>getHeadServiceIPFamily</code> 回 error。我原本想回「requeue 就好,不影響建 Pod」,但這樣說太滿,實際影響有兩個:</p>
+  <ul>
+    <li><strong>head Pod 晚一輪才建</strong>,不會卡死。</li>
+    <li><strong>status 短暫出現 <code>ReplicaFailure</code> condition</strong>,reason 是 <code>FailedCreateHeadPod</code>,下一輪成功後移除。不會發 <code>FailedToCreateHeadPod</code> event。</li>
+  </ul>
+
+  <p class="q">要自己 trace 的話,從哪裡開始?</p>
+  <p>從 error 產生的地方開始,順著回傳往上追到 status。行號以本地 <code>4e0f947d</code> 為準;PR head 後來 merge 過 master,用函式名搜比較保險。</p>
+  <ol>
+    <li><strong>error 從哪來:</strong><code>raycluster_controller.go</code> 的 <code>getHeadServiceIPFamily</code>(<code>:2147</code>)List 不到 Service 時回 <code>fmt.Errorf</code>。<code>createHeadPod</code>(<code>:1632</code>)第一行就呼叫它,拿到 error 直接 return,所以後面 <code>:1661</code> 的 event 走不到。</li>
+    <li><strong>怎麼被包起來:</strong><code>reconcilePods</code>(<code>:1053–1055</code>)用 <code>errstd.Join(utils.ErrFailedCreateHeadPod, err)</code>。<code>ErrFailedCreateHeadPod</code> 定義在 <code>utils/constant.go:440</code>,型別是 <code>errRayClusterReplicaFailure</code>(<code>:428</code>),reason <code>"FailedCreateHeadPod"</code>。<code>RayClusterReplicaFailureReason</code>(<code>:445</code>)用 <code>errors.As</code> 取 reason;<code>errors.As</code> 會走進 <code>errors.Join</code> 的每個 error,所以取得到。</li>
+    <li><strong>回到主迴圈:</strong><code>reconcileFuncs</code> 迴圈(<code>:372–378</code>)記 error log 後 <code>break</code>。<code>reconcilePods</code> 是最後一個,break 沒跳過其他函式。<code>:382</code> 把 error 帶進 <code>calculateStatus</code>。</li>
+    <li><strong>status 怎麼變:</strong><code>calculateStatus</code>(<code>:1980</code>)的 <code>:1990–2003</code>。feature gate <code>RayClusterStatusConditions</code> 預設開(<code>pkg/features/features.go:130</code>,Beta、<code>Default: true</code>)。有 reason 就設 <code>ReplicaFailure</code>,message 是整串 error;下一輪沒 error 就移除。</li>
+    <li><strong>什麼時候恢復:</strong><code>:393–400</code> 優先回傳 <code>reconcileErr</code>,controller-runtime 用 backoff requeue。另外 <code>SetupWithManager</code> 有 <code>Owns(&amp;corev1.Service{})</code>(<code>:1959</code>),Service 進 cache 時本身就會觸發 reconcile,通常比 backoff 早。</li>
+  </ol>
+
+  <p class="q">怎麼回?</p>
+  <p>想讓作者自己去發現 condition 的影響,用帶提示的問句。純開放式的「any side effect?」他可能照 bugbot 的角度只回「just requeues」,要多來回一次。</p>
+  <p class="cap">回覆草稿(帶提示的問句)</p>
+<pre><code>I think it's fine to requeue here. Do you think it causes any side effect beyond the delay? e.g. the error is wrapped in `ErrFailedCreateHeadPod`, which feeds into the status conditions. @400Ping wdyt?</code></pre>
+  <p class="cap">回覆草稿(直接講結論)</p>
+<pre><code>I think it's fine to requeue here; it only delays head Pod creation until the Service is in the cache. One thing I noticed: since the error is wrapped in `ErrFailedCreateHeadPod`, a new cluster may briefly show a `ReplicaFailure` condition even though nothing actually failed. Do you think we should make this more accurate, e.g. return the error without wrapping it so it doesn't set `ReplicaFailure`? Not a blocker for me. @400Ping wdyt?</code></pre>
+  <p>如果要改,三種做法:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>做法</th><th>效果</th><th>代價</th></tr></thead>
+      <tbody>
+        <tr><td>不包 <code>ErrFailedCreateHeadPod</code>,回一般 error</td><td>照樣 requeue、記 log,不設 condition</td><td>最小</td></tr>
+        <tr><td>不帶 error 的 requeue(<code>RequeueAfter</code>)</td><td>連 error log 都沒有</td><td><code>reconcilePods</code> 只回 <code>error</code>,要動結構</td></tr>
+        <tr><td>新增 reason,例如 <code>HeadServiceNotReady</code></td><td>最清楚</td><td>新增使用者看得到的 API 值,對這個 PR 太重</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>待辦</h3>
+  <div class="note">
+    <ul>
+      <li>resolve <code>testServices</code> 那則。</li>
+      <li>回 log script 那則(留在這個 PR,共用 collector 當 follow-up)。</li>
+      <li>自己 trace 完 bugbot 那條路徑後,回 bugbot 那則。</li>
+      <li>仍未確認:Buildkite log 裡三個 IPv6 測試是 PASS 不是 SKIP;<code>RAY_ADDRESS</code> 改變會不會讓升級後的既有 head Pod 被重建。</li>
+    </ul>
   </div>
 </main>
 </body>
