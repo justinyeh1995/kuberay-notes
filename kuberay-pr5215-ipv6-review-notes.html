@@ -405,7 +405,7 @@ bash -c 'exec bash -lc "${X}"'
   <p>不是,這個組合不存在。PR 改的是兩件不同的事,一個管「聽」,一個管「連」。</p>
   <ul>
     <li><strong>聽在哪裡(server 端):<code>0.0.0.0</code> → <code>::</code>。</strong><code>--dashboard-host</code> 是 dashboard 要 bind 的位址,不是 URL。<code>0.0.0.0</code> 聽所有 IPv4 介面,<code>::</code> 聽所有 IPv6 介面。只有 IPv6 cluster 會變,結果是 dashboard 在 <code>[::]:8265</code> 等連線。<code>::</code> 是 wildcard,只拿來 bind,不會出現在 URL 裡。</li>
-    <li><strong>從哪裡連(client 端):<code>127.0.0.1</code> → <code>localhost</code>。</strong>同一個 Pod 裡要連 dashboard 或 GCS 的地方,原本寫死 IPv4 loopback。head 的 <code>RAY_ADDRESS</code> 從 <code>127.0.0.1:6379</code> 變成 <code>localhost:6379</code>,sidecar submitter 從 <code>http://127.0.0.1:8265</code> 變成 <code>http://localhost:8265</code>。<code>localhost</code> 依 Pod 設定解析成 <code>127.0.0.1</code> 或 <code>::1</code>;IPv6-only Pod 沒有 <code>127.0.0.1</code> 可連。這項不分 family,IPv4 cluster 也會拿到新值。</li>
+    <li><strong>從哪裡連(client 端):<code>127.0.0.1</code> → <code>localhost</code>。</strong>同一個 Pod 裡要連 dashboard 或 GCS 的地方,原本寫死 IPv4 loopback。head 的 <code>RAY_ADDRESS</code> 從 <code>127.0.0.1:6379</code> 變成 <code>localhost:6379</code>,sidecar submitter 從 <code>http://127.0.0.1:8265</code> 變成 <code>http://localhost:8265</code>。<code>localhost</code> 依 Pod 設定解析成 <code>127.0.0.1</code> 或 <code>::1</code>。(2026-10-19 更正:原本寫「IPv6-only Pod 沒有 <code>127.0.0.1</code> 可連」是錯的。IPv6-only 指的是 Pod IP 和 Service 的網路,Pod 的 <code>lo</code> 通常仍有 <code>127.0.0.1</code>。寫死 <code>127.0.0.1</code> 的風險是 server 只 bind 在 <code>::1</code> 時連不到,這點我沒有去 Ray 原始碼查證。)這項不分 family,IPv4 cluster 也會拿到新值。</li>
     <li><strong>真的要把 IPv6 位址寫進 URL 時:加中括號。</strong>Serve proxy 用 Pod IP 組 URL,改用 <code>net.JoinHostPort</code>。</li>
   </ul>
 <pre><code>http://fd00:10:244::5:8000/     ← 舊寫法,port 和位址分不開
@@ -555,12 +555,64 @@ kubectl describe raycluster &lt;name&gt;   # Status 底下的 Conditions</code><
     </table>
   </div>
 
+  <p class="q">Redis cleanup Job 為什麼找不到 head Service 就 fallback 成 IPv4?</p>
+  <p>2026-10-19 讀 <code>buildRedisCleanupJob</code>(<code>raycluster_controller.go:1811</code>)。一句話:這個 Job 不會跑 <code>ray start</code>,<code>dashboard-host</code> 填什麼都用不到,所以不能為了它讓 cleanup 失敗。</p>
+  <ul>
+    <li><strong>什麼時候建:</strong>只在 RayCluster 刪除中、而且有 GCS FT 的 Redis cleanup finalizer 時(<code>:338</code>)。先刪 worker,等 head Pod 結束,再建 Job 清 Redis 裡這個 cluster 的 storage namespace,清完才移除 finalizer。</li>
+    <li><strong>為什麼要 family:</strong>Job 的 Pod 是拿 <code>buildHeadPod</code> 改出來的,沿用 head 的 image、env(<code>RAY_REDIS_ADDRESS</code>、<code>REDIS_PASSWORD</code>、storage namespace)和 volume。PR 讓 <code>buildHeadPod</code> 多了 <code>headIPFamily</code> 參數,這裡也得傳一個值。</li>
+    <li><strong>為什麼 Service 可能不在:</strong>cluster 已經在刪除中。例如 foreground cascading deletion 會先刪 RayCluster 擁有的 dependents(包括 head Service),RayCluster 本身被 finalizer 擋著;使用者也可能自己先刪了 Service。</li>
+    <li><strong>為什麼不像 <code>createHeadPod</code> 回 error:</strong>回 error 的話 Job 永遠建不起來,finalizer 卡到 GCS FT 刪除 timeout 才被強制移除(<code>forceRemoveGCSFTFinalizer</code>),Redis 也不會被清。PR 之前 cleanup 不依賴 Service,這樣會變成 regression。</li>
+    <li><strong>為什麼 IPv4 安全:</strong><code>:1834–1835</code> 把 container 的 <code>Command</code> 和 <code>Args</code> 整個覆寫掉,不會執行 <code>ray start</code>。</li>
+  </ul>
+<pre><code># 正常 head Pod:dashboard-host 只出現在這行
+ray start --head --dashboard-host=0.0.0.0 ... --block
+
+# Redis cleanup Job:Command / Args 被覆寫成
+echo "..." &amp;&amp; python -c "from ray._private.gcs_utils import cleanup_redis_storage; ..."</code></pre>
+  <ul>
+    <li>小細節:<code>buildHeadPod</code> 設的 env 原封不動留在 Job 裡,所以 <code>KUBERAY_GEN_RAY_START_CMD</code> 仍存著含 <code>--dashboard-host</code> 的字串。但 Job 只跑那段 python,沒人讀它,結論不變。</li>
+    <li>可以考慮的 nit:既然值不重要,可以不查 Service,直接傳 <code>corev1.IPv4Protocol</code>(或空字串,效果一樣是 <code>0.0.0.0</code>)。少一次 List,刪除流程裡也不會多一筆「Head service not found」的 log。現在的寫法沒錯,只是多做了一件沒用的事。</li>
+  </ul>
+
+  <p class="q"><code>setMissingRayStartParams</code> 什麼時候才會補 <code>dashboard-host</code>?</p>
+  <p>使用者在 CR 的 <code>spec.headGroupSpec.rayStartParams</code> 裡沒有 <code>dashboard-host</code> 這個 key 時(<code>common/pod.go:1403</code>)。</p>
+<pre><code>if _, ok := rayStartParams["dashboard-host"]; !ok {
+	rayStartParams["dashboard-host"] = defaultDashboardHost(headIPFamily)
+}</code></pre>
+  <ul>
+    <li><strong>看 key 在不在,不看值:</strong>寫了 <code>dashboard-host: ""</code> 就不會補,結果是空值。</li>
+    <li><strong>使用者寫死的值優先:</strong>helm chart 和 samples 寫死 <code>"0.0.0.0"</code>,在 IPv6-only cluster 不會變成 <code>::</code>(第 5 節的缺口)。E2E 特地把 <code>RayStartParams</code> 清成空 map 就是為了走到預設值。</li>
+    <li><strong>不只補 <code>dashboard-host</code>:</strong>同一個函式也補 worker 的 <code>address</code>、<code>metrics-export-port</code>、<code>dashboard-agent-listen-port</code>;<code>block</code> 例外,一律設成 <code>true</code>。這個 PR 只動了 <code>dashboard-host</code>。</li>
+  </ul>
+
+  <p class="q">這個 PR 有寫 validation 嗎?</p>
+  <p>沒有。非測試檔案裡沒有 <code>utils/validation.go</code> 或 webhook 的改動。diff 裡的 <code>net.ParseIP</code> 都是判斷 family(<code>normalizeIPs</code>、<code>GetServiceIPFamily</code>)或 E2E 斷言,不是擋使用者輸入。</p>
+  <p>「IPv6 cluster 寫死 <code>0.0.0.0</code>」不適合在這個 PR 用 validation 擋:</p>
+  <ul>
+    <li><strong>建 CR 時還不知道 family:</strong>webhook 或 reconcile 開頭跑的時候,head Service 可能還沒建,<code>ipFamilies</code> 也還沒填。只能延到建 head Pod 前,那比較像發 warning event,不算 validation。</li>
+    <li><strong>擋掉會誤傷:</strong>寫死 <code>0.0.0.0</code> 只是 dashboard 從 Pod 外連不到,cluster 還能跑;有人可能只在 Pod 內用 dashboard。</li>
+  </ul>
+  <p>PR 選擇寫文件:<code>docs/guidance/rayStartParams.md</code> 說明預設依 head Service 的 primary IP family 填 <code>0.0.0.0</code> 或 <code>::</code>、可以覆寫、IPv6-only 要 Ray 2.56.0 以上。但沒明講「自己寫了 <code>0.0.0.0</code>,IPv6 不會自動改」;Ray 版本也只寫在文件,沒有檢查。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>項目</th><th>分類</th><th>理由</th></tr></thead>
+      <tbody>
+        <tr><td>文件補一句「寫死 <code>0.0.0.0</code> 不會被改成 <code>::</code>」</td><td>nit</td><td>改動小,不影響正確性,不擋 merge</td></tr>
+        <tr><td>IPv6 family + 寫死 <code>0.0.0.0</code> 時發 warning event</td><td>follow-up</td><td>新增行為,要決定在哪檢查、發什麼 event</td></tr>
+        <tr><td>IPv6-only 擋 Ray 2.56.0 以前的版本</td><td>follow-up</td><td>同上</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="cap">nit comment 草稿</p>
+<pre><code>nit: maybe worth noting that if users explicitly set `dashboard-host: "0.0.0.0"` (as in the helm chart and samples), it won't be switched to `::` on IPv6-only clusters, so the dashboard won't be reachable from outside the Pod.</code></pre>
+
   <h3>待辦</h3>
   <div class="note">
     <ul>
       <li>resolve <code>testServices</code> 那則。</li>
       <li>回 log script 那則(留在這個 PR,共用 collector 當 follow-up)。</li>
       <li>自己 trace 完 bugbot 那條路徑後,回 bugbot 那則。</li>
+      <li>(可選)在 <code>rayStartParams.md</code> 留 nit:寫死 <code>0.0.0.0</code> 在 IPv6-only 不會被改成 <code>::</code>。</li>
       <li>仍未確認:Buildkite log 裡三個 IPv6 測試是 PASS 不是 SKIP。(<code>RAY_ADDRESS</code> 會不會讓升級後的 head Pod 重建:已查,不會,見第 8 節最後。)</li>
     </ul>
   </div>
