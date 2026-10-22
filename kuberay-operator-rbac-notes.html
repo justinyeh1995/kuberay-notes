@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operator RBAC</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  .flow { list-style: none; padding: 0; margin: 12px 0 18px; max-width: none; counter-reset: step; }
+  .flow > li { position: relative; margin: 0 0 20px; display: grid; grid-template-columns: 1fr 220px; gap: 16px; align-items: start; }
+  .flow > li:not(:last-child)::after { content: ""; position: absolute; left: 32px; bottom: -20px; height: 20px; border-left: 1px solid var(--rule); }
+  .step { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 12px 16px; counter-increment: step; }
+  .step h4 { margin: 0 0 2px; font-size: 0.98rem; }
+  .step h4::before { content: counter(step) " · "; font-family: var(--font-mono); color: var(--muted); }
+  .step p { margin: 0; font-size: 0.88rem; color: var(--muted); }
+  .step.key { border: 2px solid var(--accent); background: var(--accent-soft); }
+  .step.key p { color: var(--ink); }
+  .side { font-size: 0.86rem; border-radius: 6px; padding: 10px 12px; background: var(--warn-soft); border-left: 3px solid var(--warn); }
+  .side strong { color: var(--warn); }
+
+  .sev { font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+  .sev.high { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn); }
+  .sev.med { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .sev.low { color: var(--muted); background: var(--code-bg); border: 1px solid var(--rule); }
+
+  @media (max-width: 600px) {
+    .flow > li { grid-template-columns: 1fr; gap: 8px; }
+  }
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">KubeRay 部署 · RBAC</p>
+  <h1>Operator RBAC:marker、Kustomize 與 Helm</h1>
+  <p class="meta">整理自 2026-10-22 的問答 · 起因:KubeRay #5266 同時改了 Helm chart 與 kustomize overlay 的 RBAC · 相關筆記:<a href="kuberay-was-integration-overview-notes.html">Kubernetes WAS Overview</a>、<a href="kuberay-was-priorityclass-preemption-notes.html">WAS PriorityClass &amp; PreemptionPolicy</a></p>
+
+  <div class="verdict">
+    <p><strong>重點:</strong>operator 對 API 的每個操作(包括 reconciler 的 GET)都以 <strong>kuberay-operator 的 ServiceAccount</strong> 身分執行,需要 RBAC 授權。權限有三種來源:</p>
+    <ul>
+      <li><strong>一般權限</strong>:controller 上的 <code>+kubebuilder:rbac</code> marker → <code>controller-gen</code> 產生 <code>config/rbac/role.yaml</code>;Helm 再手抄一份。</li>
+      <li><strong>選用功能的權限</strong>(例如 WAS):不能用 marker,在 Kustomize overlay 與 Helm 條件區塊各寫一次。</li>
+      <li><strong>cluster-scoped 又是選用的權限</strong>(例如 PriorityClass):Helm 還得獨立成 ClusterRole。</li>
+    </ul>
+  </div>
+
+  <h2>1. 一般權限:kubebuilder RBAC marker</h2>
+  <p class="q">原本 operator 常用的 reconciler GET 權限是在哪裡設定的?</p>
+  <p><strong>寫在 controller 程式碼的註解裡</strong>,例如 <code>ray-operator/controllers/ray/raycluster_controller.go:91-102</code>:</p>
+  <pre><code>// +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete;deletecollection
+// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete</code></pre>
+  <p><code>rayservice_controller.go</code>、<code>networkpolicy_controller.go</code>、<code>raycluster_mtls_controller.go</code> 也各有一組。</p>
+  <ol class="flow">
+    <li><div class="step"><h4>controller 上寫 marker</h4><p>宣告這個 reconciler 需要哪些 group / resource / verb。</p></div>
+      <div class="side"><strong>就是註解</strong><br>不影響編譯</div></li>
+    <li><div class="step key"><h4><code>make manifests</code></h4><p><code>ray-operator/Makefile:45</code>:<code>controller-gen rbac:roleName=kuberay-operator ... paths="./..."</code> 掃描所有 marker、合併後輸出 <code>ray-operator/config/rbac/role.yaml</code>(ClusterRole <code>kuberay-operator</code>)。</p></div>
+      <div class="side"><strong>自動產生</strong><br>不要手改 role.yaml</div></li>
+    <li><div class="step"><h4>兩種安裝方式取用</h4><p>Kustomize 直接用產生的 <code>role.yaml</code>,經 <code>role_binding.yaml</code> 綁到 ServiceAccount;Helm 則是另一份手寫規則(見下表)。</p></div>
+      <div class="side"><strong>Helm 是手動同步</strong><br>沒找到檢查一致性的 CI</div></li>
+  </ol>
+
+  <h2>2. 兩種安裝方式</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th></th><th>Helm chart(<code>helm-chart/kuberay-operator/</code>)</th><th>Kustomize(<code>ray-operator/config/</code>)</th></tr></thead>
+      <tbody>
+        <tr><td>給誰用</td><td><strong>使用者</strong>正式安裝</td><td><strong>開發者與 CI</strong>:<code>make deploy</code>、<code>make deploy-kubernetes-was-v1alpha3</code>(<code>Makefile:175</code>)、Buildkite e2e</td></tr>
+        <tr><td>怎麼產生 YAML</td><td>Go template 依 <code>values.yaml</code> 渲染</td><td>base YAML + overlay 的 patch</td></tr>
+        <tr><td>一般權限從哪來</td><td><strong>手寫</strong>在 <code>templates/_helpers.tpl:176</code> 的 <code>role.consistentRules</code>,由 <code>role.yaml</code>(ClusterRole)或 <code>multiple_namespaces_role.yaml</code>(各 namespace 的 Role)引用</td><td><code>controller-gen</code> 產生的 <code>config/rbac/role.yaml</code></td></tr>
+        <tr><td>選用功能的權限</td><td><code>role.consistentRules</code> 裡的條件區塊,例如 <code>{{- if .kubernetesWASEnabled }}</code>、Volcano / scheduler-plugins 的 podgroups</td><td>功能專屬 overlay 的 JSON patch,例如 <code>overlays/kubernetes-was-v1alpha3/kustomization.yaml</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <p>我在 repo 裡沒找到比對 Helm 規則與 <code>config/rbac/role.yaml</code> 的 CI 或腳本;看起來兩邊靠人工同步。改權限時兩邊都要改。</p>
+  </div>
+
+  <h2>3. 選用功能為什麼不能用 marker</h2>
+  <p>如果在 WAS 程式碼加上:</p>
+  <pre><code>// +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=get;list;watch</code></pre>
+  <p><code>controller-gen</code> 會把它產生進 base 的 <code>config/rbac/role.yaml</code>,<strong>每個安裝都拿到</strong>,不論有沒有開 WAS。marker 無法表達「只有開 feature gate 才給」。所以 WAS 的權限都放在有條件的位置:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th></th><th>Workload / PodGroup</th><th>PriorityClass(#5266)</th></tr></thead>
+      <tbody>
+        <tr><td>Kustomize</td><td>WAS overlay 的 JSON patch,加到 ClusterRole <code>kuberay-operator</code> 的 <code>/rules/-</code></td><td>同一個 overlay 多一條 patch</td></tr>
+        <tr><td>Helm</td><td><code>role.consistentRules</code> 的 <code>{{- if .kubernetesWASEnabled }}</code> 區塊(<code>_helpers.tpl:425</code>)</td><td><strong>獨立檔</strong> <code>templates/priorityclass_role.yaml</code>(見第 4 節)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>overlay 的註解寫明 "mirroring the Helm chart, which gates it on the KubernetesWAS feature gate",兩份同樣是手動同步。</p>
+
+  <h2>4. 案例:#5266 的 PriorityClass 權限</h2>
+  <p class="q">Helm chart 跟 kustomize overlay 都有寫到 RBAC,是為啥?加上誰的權限?</p>
+  <p><strong>兩邊加的是同一份權限:讓 kuberay-operator 的 ServiceAccount 能讀 PriorityClass。</strong></p>
+  <ul>
+    <li><strong>為什麼要</strong>:<code>resolvePreemptionPolicy</code> 呼叫 <code>k.cli.Get(..., &amp;PriorityClass{})</code>,用的是 operator 的 client。沒有授權會回 403 Forbidden,PodGroup 建不起來。</li>
+    <li><strong>只給讀取</strong>:<code>get</code> / <code>list</code> / <code>watch</code>。要 <code>list</code> / <code>watch</code> 是因為 controller-runtime 的 client 預設走 informer cache,讀一個物件也要能 list、watch 該型別。</li>
+    <li><strong>只在開 WAS 時給</strong>:Helm 要 <code>rbacEnable</code> 且 <code>KubernetesWAS</code> gate 開啟;Kustomize 只有用 WAS overlay 部署時。</li>
+  </ul>
+
+  <h3>4.1 Helm 為什麼要另外寫一個 ClusterRole</h3>
+  <p><code>singleNamespaceInstall: true</code>(operator 只管單一 namespace)時,<code>role.consistentRules</code> 會被渲染成 namespaced <strong>Role</strong>。但 PriorityClass 是 <strong>cluster-scoped</strong> 資源,namespaced Role 無法授權,必須用 ClusterRole + ClusterRoleBinding。所以 PR 另外寫 <code>priorityclass_role.yaml</code>,不論是否單一 namespace 都渲染成 ClusterRole(檔案開頭註解與 <code>tests/priorityclass_role_test.yaml</code> 第 4 個 case 講的就是這件事)。</p>
+  <p class="cap">ClusterRoleBinding 綁的就是 operator 的 ServiceAccount</p>
+  <pre><code>subjects:
+- kind: ServiceAccount
+  name: {{ include "kuberay-operator.serviceAccount.name" . }}
+  namespace: {{ .Release.Namespace }}</code></pre>
+
+  <h3>4.2 review 時可以留意</h3>
+  <ul>
+    <li><strong>單一 namespace 安裝的權限範圍</strong>:開 WAS 後會多一個 cluster 層級的 ClusterRole。只能讀 PriorityClass,風險很低,但在單一 namespace 安裝下少見,release note 或文件最好提一句(PR 的 Limitations 寫了需要 cluster-scoped 權限,但沒特別點出 <code>singleNamespaceInstall</code>)。</li>
+    <li><strong>workaround 移除時</strong>:upstream(kubernetes#143252)修好、拿掉 <code>resolvePreemptionPolicy</code> 後,兩份 RBAC 也要一起刪,Helm 那份連同 <code>tests/priorityclass_role_test.yaml</code>。</li>
+  </ul>
+
+  <h2>附錄:關鍵位置速查</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>位置</th><th>作用</th></tr></thead>
+      <tbody>
+        <tr><td><code>ray-operator/controllers/ray/*_controller.go</code></td><td><code>+kubebuilder:rbac</code> marker</td></tr>
+        <tr><td><code>ray-operator/Makefile:45</code></td><td><code>make manifests</code>:controller-gen 產生 RBAC</td></tr>
+        <tr><td><code>ray-operator/config/rbac/role.yaml</code></td><td>產生出的 ClusterRole <code>kuberay-operator</code></td></tr>
+        <tr><td><code>ray-operator/config/rbac/role_binding.yaml</code></td><td>Kustomize:綁到 ServiceAccount</td></tr>
+        <tr><td><code>ray-operator/config/overlays/kubernetes-was-v1alpha3/kustomization.yaml</code></td><td>WAS 專屬 RBAC patch</td></tr>
+        <tr><td><code>helm-chart/kuberay-operator/templates/_helpers.tpl:176</code></td><td>Helm 手寫的 <code>role.consistentRules</code></td></tr>
+        <tr><td><code>helm-chart/kuberay-operator/templates/role.yaml</code>、<code>multiple_namespaces_role.yaml</code></td><td>引用 consistentRules 的 ClusterRole / Role</td></tr>
+        <tr><td><code>helm-chart/kuberay-operator/templates/priorityclass_role.yaml</code></td><td>#5266 新增的 PriorityClass ClusterRole + Binding</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+</body>
+</html>

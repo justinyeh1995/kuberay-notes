@@ -121,7 +121,7 @@
 <main>
   <p class="eyebrow">KubeRay 脈絡整理 · Kubernetes WAS(Workload-Aware Scheduling)</p>
   <h1>Kubernetes WAS × KubeRay 全貌</h1>
-  <p class="meta">整理於 2026-10-22 · branch <code>kubernetes-was-priority-preemption</code>(<code>e50c4ba4</code>)· 相關筆記:<a href="kuberay-was-priorityclass-preemption-notes.html">WAS PriorityClass &amp; PreemptionPolicy</a>(PR review 細節)</p>
+  <p class="meta">整理於 2026-10-22 · branch <code>kubernetes-was-priority-preemption</code>(<code>e50c4ba4</code>)· 相關筆記:<a href="kuberay-was-priorityclass-preemption-notes.html">WAS PriorityClass &amp; PreemptionPolicy</a>(PR review 細節)、<a href="kuberay-operator-rbac-notes.html">Operator RBAC</a>(Helm / Kustomize 權限)</p>
 
   <div class="verdict">
     <p><strong>一句話:</strong>Kubernetes 1.37 把 gang scheduling 做進 in-tree(<code>Workload</code> + <code>PodGroup</code> API + 預設 kube-scheduler)。KubeRay 用 batch scheduler plugin 的形式接上它:每個 RayCluster 對應 <strong>一個 Workload + 一個 PodGroup</strong>,head 與所有 worker 都是同一個 gang,pod 透過 <code>spec.schedulingGroup</code> 掛上去。</p>
