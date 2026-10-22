@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kubernetes WAS Overview</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  .flow { list-style: none; padding: 0; margin: 12px 0 18px; max-width: none; counter-reset: step; }
+  .flow > li { position: relative; margin: 0 0 20px; display: grid; grid-template-columns: 1fr 220px; gap: 16px; align-items: start; }
+  .flow > li:not(:last-child)::after { content: ""; position: absolute; left: 32px; bottom: -20px; height: 20px; border-left: 1px solid var(--rule); }
+  .step { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 12px 16px; counter-increment: step; }
+  .step h4 { margin: 0 0 2px; font-size: 0.98rem; }
+  .step h4::before { content: counter(step) " · "; font-family: var(--font-mono); color: var(--muted); }
+  .step p { margin: 0; font-size: 0.88rem; color: var(--muted); }
+  .step.key { border: 2px solid var(--accent); background: var(--accent-soft); }
+  .step.key p { color: var(--ink); }
+  .side { font-size: 0.86rem; border-radius: 6px; padding: 10px 12px; background: var(--warn-soft); border-left: 3px solid var(--warn); }
+  .side strong { color: var(--warn); }
+
+  .sev { font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+  .sev.high { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn); }
+  .sev.med { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .sev.low { color: var(--muted); background: var(--code-bg); border: 1px solid var(--rule); }
+
+  @media (max-width: 600px) {
+    .flow > li { grid-template-columns: 1fr; gap: 8px; }
+  }
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">KubeRay 脈絡整理 · Kubernetes WAS(Workload-Aware Scheduling)</p>
+  <h1>Kubernetes WAS × KubeRay 全貌</h1>
+  <p class="meta">整理於 2026-10-22 · branch <code>kubernetes-was-priority-preemption</code>(<code>e50c4ba4</code>)· 相關筆記:<a href="kuberay-was-priorityclass-preemption-notes.html">WAS PriorityClass &amp; PreemptionPolicy</a>(PR review 細節)</p>
+
+  <div class="verdict">
+    <p><strong>一句話:</strong>Kubernetes 1.37 把 gang scheduling 做進 in-tree(<code>Workload</code> + <code>PodGroup</code> API + 預設 kube-scheduler)。KubeRay 用 batch scheduler plugin 的形式接上它:每個 RayCluster 對應 <strong>一個 Workload + 一個 PodGroup</strong>,head 與所有 worker 都是同一個 gang,pod 透過 <code>spec.schedulingGroup</code> 掛上去。</p>
+    <ul>
+      <li>不用裝 Volcano / YuniKorn,pod 仍由 <code>default-scheduler</code> 排程。</li>
+      <li>KubeRay 端以 feature gate <code>KubernetesWAS</code> 開啟,RayCluster 再以 label <code>ray.io/gang-scheduling-enabled: "true"</code> opt in。</li>
+      <li>目前進行中的工作:把 PriorityClass / preemptionPolicy 帶進 gang(本 branch),以及 upstream 修正 PodGroup 預設值 bug(kubernetes#143253)。</li>
+    </ul>
+  </div>
+
+  <p class="cap">下文的程式碼路徑以 <code>ray-operator/controllers/ray/</code> 為根;<code>was_v1alpha3.go</code> 指 <code>batchscheduler/kubernetes-was/v1alpha3/kubernetes_was_v1alpha3.go</code>。</p>
+
+  <h2>1. 時間線</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>時間</th><th>事件</th><th>重點</th></tr></thead>
+      <tbody>
+        <tr><td>K8s 1.36</td><td>upstream:<code>scheduling.k8s.io/v1alpha2</code></td><td>KEP-4671 gang scheduling、Workload API 第一版</td></tr>
+        <tr><td>2026-08-18</td><td>KubeRay <code>aac52c96</code> · #4962 Was v1alpha2 batch scheduler</td><td>首次整合(作者 Mark Rossetti / @marosset);Helm、e2e、docs 一起進來;最後收斂成「整個 RayCluster 一個 gang」</td></tr>
+        <tr><td>K8s 1.37</td><td>upstream:<code>scheduling.k8s.io/v1alpha3</code></td><td>KEP-5832 把 PodGroup 從 Workload 拆成獨立 runtime 物件;新增 <code>PodGroupPreemptionPolicy</code> gate</td></tr>
+        <tr><td>2026-09-08</td><td>KubeRay <code>0acedf89</code> · #5226 K8s 1.37 client-go / envtest</td><td>v1alpha2 實作整個改名換成 v1alpha3(檔案、kind config、CI pipeline 都換)</td></tr>
+        <tr><td>2026-10-18</td><td>KubeRay #5266(本 branch)<code>fbf13415</code>、<code>e50c4ba4</code></td><td>PriorityClass / preemptionPolicy 帶進 Workload &amp; PodGroup,並繞過 upstream bug</td></tr>
+        <tr><td>2026-10</td><td>upstream issue <a href="https://github.com/kubernetes/kubernetes/issues/143252">kubernetes#143252</a> / PR <a href="https://github.com/kubernetes/kubernetes/pull/143253">#143253</a>(OPEN)</td><td>在 #5266 review 中發現的 bug,由同一作者(@alimaazamat)往 upstream 修</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>2. Upstream:WAS 是什麼</h2>
+  <ul>
+    <li><strong>Workload</strong>(<code>scheduling.k8s.io/v1alpha3</code>,namespaced):描述「這組工作要怎麼被排程」的<strong>模板</strong>。<code>spec.podGroupTemplates[]</code> 每個 template 有 <code>schedulingPolicy</code>(例如 <code>gang.minCount</code>),1.37 起還有 <code>priorityClassName</code> / <code>preemptionPolicy</code>。spec 幾乎不可變。</li>
+    <li><strong>PodGroup</strong>(KEP-5832,1.37 拆出):<strong>runtime</strong> 物件,透過 <code>spec.workloadRef</code> 指回某個 Workload 的 template。kube-scheduler 以它為單位做 gang 決策;帶 finalizer <code>scheduling.k8s.io/podgroup-protection</code>,只要還有 pod 引用就擋住刪除。</li>
+    <li><strong>Pod</strong>:<code>spec.schedulingGroup.podGroupName</code> 指向 PodGroup(不可變)。scheduler 會等到 PodGroup 湊滿 <code>minCount</code> 才一次放行。</li>
+    <li><strong>Priority</strong>:priority admission 會從 <code>priorityClassName</code> 算出 PodGroup 的 priority 與 preemptionPolicy;scheduler 要求 PodGroup 內每個 pod 的 priority 與 PodGroup 一致。</li>
+  </ul>
+  <p>叢集需求(KubeRay 文件 <code>docs/guidance/kubernetes-was.md</code>):</p>
+  <ul>
+    <li>apiserver <code>--runtime-config=scheduling.k8s.io/v1beta1=true,scheduling.k8s.io/v1alpha3=true</code>(KubeRay 用 v1alpha3,但 kube-scheduler 的 GenericWorkload 整合要 v1beta1 也被 serve)。</li>
+    <li><code>GenericWorkload=true</code>:apiserver、controller-manager、scheduler。</li>
+    <li>(選用)<code>PodGroupPreemptionPolicy=true</code>:要用 <code>Never</code> 時才需要。</li>
+  </ul>
+
+  <h2>3. KubeRay 端的分層架構</h2>
+  <ol class="flow">
+    <li><div class="step"><h4>Feature gate + 互斥檢查</h4><p><code>pkg/features/features.go:98</code> <code>KubernetesWAS</code>(alpha,預設關)。<code>apis/config/v1alpha1/config_utils.go:15</code> <code>ValidateBatchSchedulerConfig</code>:開了 WAS 就不能再設 <code>--batch-scheduler</code> / <code>--enable-batch-scheduler</code>。</p></div>
+      <div class="side"><strong>和 Volcano 等二選一</strong><br>WAS 不走 <code>batchScheduler.name</code>,只看 feature gate</div></li>
+    <li><div class="step"><h4>SchedulerManager 選 factory</h4><p><code>batchscheduler/schedulermanager.go:55</code> <code>getSchedulerFactory</code>:gate 開 → <code>&amp;kuberneteswas.SchedulerFactory{}</code>。同檔用 blank import 載入 v1alpha3 subpackage,觸發其 <code>init()</code> 註冊 provider。</p></div>
+      <div class="side"><strong>plugin name</strong><br><code>kubernetes-was-v1alpha3</code></div></li>
+    <li><div class="step key"><h4>依叢集 serve 的版本挑 provider</h4><p><code>kubernetes-was/selector.go:18</code> <code>selectProvider</code>:把已註冊的 provider 依 K8s 版本字串排序(新版優先),逐一用 discovery 問 <code>Available()</code>,第一個有被 serve 的勝出。全部不在 → operator 啟動失敗。</p></div>
+      <div class="side"><strong>為多版本並存預留</strong><br>未來 v1beta1 provider 加進來即可自動優先;TODO:可指定偏好版本</div></li>
+    <li><div class="step"><h4>Provider 接上 reconciler</h4><p><code>was_v1alpha3.go:91-110</code>:<code>AddToScheme</code> 註冊 v1alpha3 型別;<code>ConfigureReconciler</code> 讓 RayCluster controller <code>Owns(Workload)</code>、<code>Owns(PodGroup)</code>,這兩個物件變動就會觸發 reconcile。</p></div>
+      <div class="side"><strong>注意</strong><br><code>New()</code> 必須先於 <code>AddToScheme</code> / <code>ConfigureReconciler</code></div></li>
+    <li><div class="step"><h4>BatchScheduler 介面的三個 hook</h4><p><code>KubernetesWASV1Alpha3Scheduler</code> 實作 <code>DoBatchSchedulingOnSubmission</code>、<code>AddMetadataToChildResource</code>、<code>CleanupOnCompletion</code>(介面在 <code>batchscheduler/interface/</code>)。</p></div>
+      <div class="side"><strong>只處理 RayCluster</strong><br>傳入 RayJob 一律 no-op</div></li>
+  </ol>
+
+  <h2>4. 一次 RayCluster reconcile 會發生什麼</h2>
+  <ol class="flow">
+    <li><div class="step"><h4>進 reconcilePods,先跑 DoBatchSchedulingOnSubmission</h4><p><code>raycluster_controller.go:993</code>:<strong>每次</strong> reconcile、在建立任何 pod 之前呼叫。回錯就整次 reconcile 中止並 requeue。</p></div>
+      <div class="side"><strong>錯誤即重試</strong><br>WAS 大量用「回 error 等下一輪」來排序刪除/重建</div></li>
+    <li><div class="step"><h4>判斷要不要 gang</h4><p><code>was_v1alpha3.go:386</code> <code>schedulingSkipReason</code>:沒有 opt-in label,或 <code>enableInTreeAutoscaling: true</code> → 跳過,並呼叫 <code>CleanupOnCompletion</code> 把之前建的 Workload/PodGroup 刪掉。</p></div>
+      <div class="side"><strong>autoscaling 不支援</strong><br>minCount 會跟著 replicas 跳,目前直接放棄 gang</div></li>
+    <li><div class="step key"><h4>sync Workload → sync PodGroup</h4><p><code>was_v1alpha3.go:114</code>:先 <code>buildSchedulingResources</code> 算出期望狀態,再依序 <code>syncWorkload</code>(:125)、<code>syncPodGroup</code>(:175)。不存在就 create;存在但過期就刪掉等下一輪重建(見第 6 節)。</p></div>
+      <div class="side"><strong>PriorityClass lookup</strong><br>只發生在 create 分支(本 branch 新增)</div></li>
+    <li><div class="step"><h4>建 pod 時掛上 gang</h4><p><code>raycluster_controller.go:1648 / 1671 / 1695</code>(head、worker、multi-host worker)→ <code>AddMetadataToChildResource</code>(<code>was_v1alpha3.go:70</code>):設 <code>schedulerName: default-scheduler</code>,以及 <code>spec.schedulingGroup.podGroupName = &lt;cluster&gt;-cluster</code>。</p></div>
+      <div class="side"><strong>不分 group</strong><br>所有 pod 都指同一個 PodGroup</div></li>
+    <li><div class="step"><h4>kube-scheduler 做 all-or-nothing</h4><p>湊不滿 <code>minCount</code> 的話,所有 pod 一起留在 <code>Pending</code>。</p></div>
+      <div class="side"><strong>刪除 RayCluster</strong><br>靠 ownerReference GC 收掉 Workload/PodGroup</div></li>
+  </ol>
+
+  <h2>5. KubeRay 產生的資源長相</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>欄位</th><th>Workload</th><th>PodGroup</th></tr></thead>
+      <tbody>
+        <tr><td>name</td><td><code>&lt;raycluster&gt;</code></td><td><code>&lt;raycluster&gt;-cluster</code></td></tr>
+        <tr><td>labels</td><td colspan="2"><code>ray.io/cluster: &lt;raycluster&gt;</code>;兩者都有 controller ownerReference 指向 RayCluster</td></tr>
+        <tr><td>關聯</td><td><code>spec.controllerRef</code> → RayCluster(給工具看,和 ownerRef 不同);唯一 template 名為 <code>cluster</code></td><td><code>spec.workloadRef</code> → Workload <code>&lt;raycluster&gt;</code> / template <code>cluster</code></td></tr>
+        <tr><td>gang</td><td colspan="2"><code>minCount = 1 + CalculateDesiredReplicas</code>(head + 各 group replicas × numOfHosts,suspended group 不算)— <code>was_v1alpha3.go:243</code></td></tr>
+        <tr><td>priority(本 branch)</td><td colspan="2">從 <strong>head</strong> template 複製 <code>priorityClassName</code>;<code>preemptionPolicy</code> 有寫就複製,沒寫就在 create 時查 PriorityClass 補上 — <code>was_v1alpha3.go:267</code>、<code>:250</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="cap">檢查 pod 有沒有掛上 gang</p>
+  <pre><code>kubectl get pods -l ray.io/cluster=&lt;name&gt; \
+  -o custom-columns=NAME:.metadata.name,GROUP:.spec.schedulingGroup.podGroupName</code></pre>
+
+  <h2>6. 叢集形狀改變時的處理</h2>
+  <ul>
+    <li><strong>Workload 過期</strong>(<code>isWorkloadStale</code>,<code>was_v1alpha3.go:398</code>:template 數量/名稱或 <code>minCount</code> 不同):Workload 不可變,只能砍掉重建。順序是<strong>先刪 PodGroup</strong>(它引用 Workload)→ 回 error → 下一輪再刪 Workload → 回 error → 再下一輪重新 create 兩者。</li>
+    <li><strong>PodGroup 過期</strong>(只比 <code>gang.minCount</code>):刪掉重建。</li>
+    <li><strong>刪 PodGroup 前先拔 finalizer</strong>(<code>deletePodGroup</code>,:216):否則還有 pod 引用時刪不掉,替換流程會卡住。</li>
+    <li><strong>刪除都帶 UID precondition</strong>(:381),避免誤刪同名的新物件。</li>
+    <li><strong>同名但不是自己 own 的物件</strong>:直接回錯,不跟別人搶(TODO:之後補 Warning event)。</li>
+    <li><strong>Suspend</strong>:pod 刪掉但 Workload/PodGroup 保留,resume 時 pod 重新加入同一個 gang。</li>
+    <li><strong>priority 欄位不參與 stale 判斷</strong>:建立後就固定,要換 PriorityClass 得重建 RayCluster(本 branch 文件已註明)。</li>
+  </ul>
+
+  <h2>7. 目前進行中:PriorityClass &amp; preemption(#5266)</h2>
+  <p><strong>要解的問題</strong>:原本 Workload/PodGroup 不帶任何 priority,(1) 與 pod 的 priority 不一致,違反 scheduler 的要求;(2) 使用者無法讓整個 gang 以 <code>Never</code> 等待資源,只能用預設 <code>PreemptLowerPriority</code> 去搶。</p>
+  <p><strong>做法</strong>:</p>
+  <ul>
+    <li><code>buildSchedulingResources</code> 把 head 的 <code>priorityClassName</code> / <code>preemptionPolicy</code> 寫進 template 與 PodGroup。</li>
+    <li><code>resolvePreemptionPolicy</code>:policy 沒寫但有 class 時,create 前自己 GET PriorityClass 補上 policy(繞 upstream bug,見下節)。</li>
+    <li>附帶:Helm <code>priorityclass_role.yaml</code> 與 kustomize overlay 加 cluster-scoped PriorityClass <code>get/list/watch</code>;kind 設定加 <code>PodGroupPreemptionPolicy=true</code>;docs、unit、e2e。</li>
+  </ul>
+  <p>review 細節(gate 關閉時欄位被靜默 drop、globalDefault、gang 一致性驗證等)見 <a href="kuberay-was-priorityclass-preemption-notes.html">WAS PriorityClass &amp; PreemptionPolicy</a>。</p>
+
+  <h2>8. Upstream bug 與修正</h2>
+  <ol class="flow">
+    <li><div class="step"><h4>API defaulting 先跑</h4><p><code>pkg/apis/scheduling/v1alpha3/defaults.go</code> <code>SetDefaults_PodGroup</code>:gate 開且 <code>preemptionPolicy</code> 為 nil → 補成 <code>PreemptLowerPriority</code>。</p></div>
+      <div class="side"><strong>問題起點</strong><br>使用者沒填,卻被填了值</div></li>
+    <li><div class="step key"><h4>priority admission 再比對</h4><p><code>plugin/pkg/admission/priority/admission.go</code> <code>admitPodGroup</code>:從 PriorityClass 算出 <code>Never</code>,發現 spec 已有不同的值 → Forbidden。</p></div>
+      <div class="side"><strong>結果</strong><br>引用 <code>Never</code> class 又沒寫 policy 的 PodGroup 一律建不起來</div></li>
+  </ol>
+  <ul>
+    <li><strong>upstream 修法</strong>(#143253,OPEN):移除 PodGroup(v1alpha3、v1beta1)與 CompositePodGroup(v1alpha3)的 preemptionPolicy defaulting,nil 留給 admission 依 PriorityClass 填,與 Pod 的流程一致;明確寫了衝突值仍會被拒。</li>
+    <li><strong>KubeRay 何時能拿掉 workaround</strong>:修正 merge 且 KubeRay 支援的最低 K8s 版本都包含它之後(1.37 若沒 backport 就拿不掉)。可移除:<code>resolvePreemptionPolicy</code> 與兩個呼叫點、PriorityClass RBAC、文件中 lookup 相關限制。<strong>要保留</strong>:<code>buildSchedulingResources</code> 複製 class / 明確 policy 的邏輯。</li>
+    <li><strong>Workload 不受此 bug 影響</strong>:upstream master 的 Workload 沒有 preemptionPolicy defaulting,priority admission 也不處理 Workload。所以 <code>syncWorkload</code> 裡的 lookup 是為了與 PodGroup 一致,不是 workaround。</li>
+  </ul>
+
+  <h2>9. 已知限制與待釐清</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>項目</th><th>現況</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>只綁 K8s 1.37 / v1alpha3</td><td>alpha API,下一版很可能再改;provider registry 已為多版本預留</td><td><span class="sev low">設計</span></td></tr>
+        <tr><td>Autoscaling RayCluster</td><td>直接跳過 gang,照一般方式逐 pod 排程</td><td><span class="sev low">設計</span></td></tr>
+        <tr><td>RayJob</td><td>hook 只認 RayCluster;RayJob 建出來的 RayCluster 需自帶 opt-in label 才會 gang</td><td><span class="sev med">待確認</span></td></tr>
+        <tr><td>既有 pod 的 schedulingGroup</td><td>欄位不可變,對執行中的 RayCluster 加 label 不影響舊 pod,要重建才生效</td><td><span class="sev low">設計</span></td></tr>
+        <tr><td>priority 只看 head</td><td>worker group 用不同 PriorityClass 時,operator 不檢查,等 scheduler 拒絕整個 gang</td><td><span class="sev high">review</span></td></tr>
+        <tr><td><code>PodGroupPreemptionPolicy</code> gate 關閉</td><td>apiserver 靜默 drop 欄位,不回錯;使用者看不到任何提示</td><td><span class="sev high">review</span></td></tr>
+        <tr><td>Workload 端也做 PriorityClass lookup</td><td>非 bug 所需,需作者說明或在註解寫清楚</td><td><span class="sev med">review</span></td></tr>
+        <tr><td>workaround 移除時機</td><td>建議在 <code>resolvePreemptionPolicy</code> 註解連到 kubernetes#143252</td><td><span class="sev med">review</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>附錄:關鍵位置速查</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>位置</th><th>作用</th></tr></thead>
+      <tbody>
+        <tr><td><code>ray-operator/pkg/features/features.go:98</code></td><td><code>KubernetesWAS</code> feature gate</td></tr>
+        <tr><td><code>ray-operator/apis/config/v1alpha1/config_utils.go:15</code></td><td>與其他 batch scheduler 互斥</td></tr>
+        <tr><td><code>batchscheduler/schedulermanager.go:55</code></td><td>選 WAS factory、blank import v1alpha3</td></tr>
+        <tr><td><code>batchscheduler/kubernetes-was/scheduler.go</code></td><td><code>Provider</code> 介面、registry、<code>SchedulerFactory</code></td></tr>
+        <tr><td><code>batchscheduler/kubernetes-was/selector.go:18</code></td><td>依 discovery 挑 provider</td></tr>
+        <tr><td><code>was_v1alpha3.go:55</code></td><td><code>DoBatchSchedulingOnSubmission</code></td></tr>
+        <tr><td><code>was_v1alpha3.go:125 / :175</code></td><td><code>syncWorkload</code> / <code>syncPodGroup</code></td></tr>
+        <tr><td><code>was_v1alpha3.go:250 / :267</code></td><td><code>resolvePreemptionPolicy</code> / <code>buildSchedulingResources</code></td></tr>
+        <tr><td><code>raycluster_controller.go:993</code></td><td>呼叫 <code>DoBatchSchedulingOnSubmission</code></td></tr>
+        <tr><td><code>raycluster_controller.go:1648 / 1671 / 1695</code></td><td>呼叫 <code>AddMetadataToChildResource</code></td></tr>
+        <tr><td><code>docs/guidance/kubernetes-was.md</code></td><td>使用者文件</td></tr>
+        <tr><td><code>ray-operator/hack/kind-config-kubernetes-was-v1alpha3.yml</code></td><td>本地 kind 設定(gate、runtime-config)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+</body>
+</html>
