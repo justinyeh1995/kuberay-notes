@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WAS PriorityClass &amp; PreemptionPolicy</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  .flow { list-style: none; padding: 0; margin: 12px 0 18px; max-width: none; counter-reset: step; }
+  .flow > li { position: relative; margin: 0 0 20px; display: grid; grid-template-columns: 1fr 220px; gap: 16px; align-items: start; }
+  .flow > li:not(:last-child)::after { content: ""; position: absolute; left: 32px; bottom: -20px; height: 20px; border-left: 1px solid var(--rule); }
+  .step { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 12px 16px; counter-increment: step; }
+  .step h4 { margin: 0 0 2px; font-size: 0.98rem; }
+  .step h4::before { content: counter(step) " · "; font-family: var(--font-mono); color: var(--muted); }
+  .step p { margin: 0; font-size: 0.88rem; color: var(--muted); }
+  .step.key { border: 2px solid var(--accent); background: var(--accent-soft); }
+  .step.key p { color: var(--ink); }
+  .side { font-size: 0.86rem; border-radius: 6px; padding: 10px 12px; background: var(--warn-soft); border-left: 3px solid var(--warn); }
+  .side strong { color: var(--warn); }
+
+  .sev { font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+  .sev.high { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn); }
+  .sev.med { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .sev.low { color: var(--muted); background: var(--code-bg); border: 1px solid var(--rule); }
+
+  @media (max-width: 600px) {
+    .flow > li { grid-template-columns: 1fr; gap: 8px; }
+  }
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">KubeRay PR review · Kubernetes WAS(gang scheduling)</p>
+  <h1>WAS PriorityClass &amp; PreemptionPolicy</h1>
+  <p class="meta">整理自 2026-10-21 ~ 10-22 的問答 · branch <code>kubernetes-was-priority-preemption</code>(base <code>9dc55272</code>)· 相關筆記:<a href="kuberay-node-label-delivery-notes.html">Node Label Delivery</a></p>
+
+  <div class="verdict">
+    <p><strong>一句話:</strong>這個 PR 讓 KubeRay 的 Kubernetes WAS(gang scheduling)把 RayCluster 的 <code>priorityClassName</code> / <code>preemptionPolicy</code> 複製到 Workload 與 PodGroup,讓整個 gang 可以用 <code>Never</code> 不搶佔。方向正確,但繞過 upstream bug 的方式只覆蓋了一半,而且有兩個會「卡住整個 RayCluster」的失敗路徑。</p>
+    <ul>
+      <li><strong>不需要</strong>加 validation rule 去檢查 K8s 1.37(已被 discovery 檢查涵蓋);<strong>但</strong><code>PodGroupPreemptionPolicy</code> gate 查不到 —— 因為 apiserver 是「靜默 drop 欄位」而不是回錯,static rule 無從判斷。</li>
+      <li>真正的缺口是 <strong>runtime 偵測 + 警告</strong>,不是 admission 規則。</li>
+      <li>真正適合放 validation rule 的是 <strong>gang 一致性</strong>(head 與所有 worker group 的 priority 設定必須一致),operator 現在只抄 head 的值。</li>
+    </ul>
+  </div>
+
+  <h2>1. PR 摘要</h2>
+  <p>兩個 commit:</p>
+  <ul>
+    <li><code>fbf13415</code> feat: support PriorityClass and preemption policy for Kubernetes WAS</li>
+    <li><code>e50c4ba4</code> fix: limit PriorityClass lookups to resource creation</li>
+  </ul>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>檔案</th><th>變更</th></tr></thead>
+      <tbody>
+        <tr><td><code>ray-operator/controllers/ray/batchscheduler/kubernetes-was/v1alpha3/kubernetes_was_v1alpha3.go</code></td><td>核心:<code>resolvePreemptionPolicy</code>、<code>buildSchedulingResources</code> 帶 priority 欄位</td></tr>
+        <tr><td><code>docs/guidance/kubernetes-was.md</code></td><td>新增「Preemption policy」章節與限制說明</td></tr>
+        <tr><td><code>helm-chart/kuberay-operator/templates/priorityclass_role.yaml</code><br>(+ <code>tests/priorityclass_role_test.yaml</code>)</td><td>新增 ClusterRole / ClusterRoleBinding 給 priorityclasses</td></tr>
+        <tr><td><code>ray-operator/config/overlays/kubernetes-was-v1alpha3/kustomization.yaml</code></td><td>dev overlay 加 priorityclasses 權限</td></tr>
+        <tr><td><code>ci/kind-config-buildkite-kubernetes-was-v1alpha3.yml</code><br><code>ray-operator/hack/kind-config-kubernetes-was-v1alpha3.yml</code></td><td>kind 加上 <code>PodGroupPreemptionPolicy=true</code></td></tr>
+        <tr><td><code>ray-operator/test/e2ekuberneteswas/kubernetes_was_v1alpha3_test.go</code></td><td>e2e:<code>TestKubernetesWAS_PreemptionPolicyFromPriorityClass</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>2. 需要加 validation rule 檢查 K8s 1.37 + <code>PodGroupPreemptionPolicy</code> 嗎?</h2>
+
+  <p class="q">要加 validation rule 檢查 k8s v1.37 加上 <code>PodGroupPreemptionPolicy</code> feature gate 有開嗎?還是已經做了?</p>
+
+  <p><strong>結論:不需要加 webhook / CRD validation rule</strong> —— 但不是因為「已經做了」,而是這個檢查本來就抓不到東西。真正缺的是 runtime 的偵測與警告。</p>
+
+  <h3>2.1 K8s 1.37 已經被涵蓋,不要再加 rule</h3>
+  <ul>
+    <li><code>kubernetes_was_v1alpha3.go:422</code> 的 <code>schedulingV1alpha3Available()</code> 用 discovery 檢查 <code>scheduling.k8s.io/v1alpha3</code> 是否有被 serve。該 API version 只在 1.37 存在(1.36 是 v1alpha2,1.37 整個換成 v1alpha3),所以老叢集根本開不起 WAS。</li>
+    <li>client library 已經是 <code>k8s.io/api v0.37.0</code>(<code>ray-operator/go.mod:24</code>)。</li>
+    <li>想要 belt-and-braces 的話 repo 已有 pattern:<code>ray-operator/main.go:239-252</code> 用 <code>utils.IsK8sVersionAtLeast()</code>(<code>controllers/ray/utils/util.go:995</code>)檢查 <code>SidecarSubmitterRestart</code> 需要 K8s 1.35+。</li>
+  </ul>
+
+  <h3>2.2 <code>PodGroupPreemptionPolicy</code> gate:查不到,而且 static rule 無法判斷</h3>
+  <p>上游(K8s 1.37)對 <code>PodGroup.spec.preemptionPolicy</code> 的處理順序:</p>
+  <ol class="flow">
+    <li><div class="step"><h4>API 型別標記</h4><p><code>k8s.io/api/scheduling/v1alpha3/types.go:234</code>:<code>+k8s:ifDisabled("PodGroupPreemptionPolicy")=+k8s:forbidden</code></p></div>
+      <div class="side"><strong>看起來像會被拒絕</strong><br>但下一個步驟讓這條規則失效</div></li>
+    <li><div class="step key"><h4>PrepareForCreate 先把欄位 drop 掉</h4><p><code>pkg/registry/scheduling/podgroup/strategy.go</code> → <code>dropDisabledPreemptionPolicyField</code><br><code>pkg/registry/scheduling/workload/strategy.go</code> → <code>dropDisabledPGPreemptionPolicyFields</code></p></div>
+      <div class="side"><strong>gate 關閉時是靜默丟棄</strong><br>不是 Forbidden,不是錯誤</div></li>
+    <li><div class="step"><h4>驗證才輪到 declarative rule</h4><p><code>rest.BeforeCreate</code> 順序是 <code>PrepareForCreate</code> → <code>Validate</code> → declarative validation(<code>k8s.io/apiserver/pkg/registry/rest/create.go:128-163</code>)</p></div>
+      <div class="side"><strong>forbidden 規則看不到欄位</strong><br>所以不會觸發</div></li>
+  </ol>
+  <p><strong>結果:gate 關掉時 create 會成功,欄位被靜默丟棄,沒有任何 error 可以回報。</strong>所以 CRD / webhook validation rule 無從判斷(RayCluster webhook 也無從查 apiserver feature gate)。唯一症狀是「使用者要 <code>Never</code>,gang 還是在搶佔,而且完全沒有提示」。</p>
+
+  <div class="note">
+    <p><strong>文件寫法也不準:</strong><code>docs/guidance/kubernetes-was.md</code> 說「the PodGroup's <code>preemptionPolicy</code> is left unset」,但其實是 <strong>operator 有設</strong>(<code>kubernetes_was_v1alpha3.go:133,182</code>),是 <strong>apiserver drop 掉的</strong>。結果一樣,但歸因錯了對象。</p>
+  </div>
+
+  <h3>2.3 建議補的 runtime check(二選一)</h3>
+  <ul>
+    <li><strong>A. create 後 read-back</strong>:operator 設了 policy 但存回去的 PodGroup 沒有 → gate 沒開 → log warning + 對 RayCluster emit Event。便宜,不需額外 API。</li>
+    <li><strong>B. 啟動時一次性偵測</strong>(比照 <code>main.go:239</code>):用 server-side dry-run create 一個帶 <code>preemptionPolicy</code> 的 PodGroup,看回來的物件欄位是否被 strip 掉。</li>
+  </ul>
+
+  <h3>2.4 PR 繞過的 upstream bug 是真的(這部分做對了)</h3>
+  <ul>
+    <li><code>pkg/apis/scheduling/v1alpha3/defaults.go</code> 的 <code>SetDefaults_PodGroup</code>:gate 開且欄位為 nil 時,<strong>在 admission 之前</strong>就把 <code>preemptionPolicy</code> default 成 <code>PreemptLowerPriority</code>。</li>
+    <li><code>plugin/pkg/admission/priority/admission.go</code> 的 <code>admitPodGroup</code>:再從 PriorityClass 算出真正 policy,若與物件上的值不同 → <strong>Forbidden</strong>。</li>
+  </ul>
+  <p class="cap">apiserver 回的錯誤</p>
+  <pre><code>the string value of PreemptionPolicy (PreemptLowerPriority) must not be provided in
+pod group spec; priority admission controller computed Never from the given
+PriorityClass name</code></pre>
+  <p>所以「create 之前顯式把欄位寫對」是正確的 workaround。</p>
+
+  <h2>3. PriorityClass 不是 namespaced resource 對吧?</h2>
+
+  <p class="q">PriorityClass 不是 namespaced resource 對吧?</p>
+
+  <p><strong>對,PriorityClass 是 cluster-scoped</strong>(跟 StorageClass 同類)。<code>k8s.io/api/scheduling/v1/types.go:25</code> 標了 <code>+genclient:nonNamespaced</code>,沒有 namespace 欄位。</p>
+
+  <h3>3.1 對這個 PR 的影響</h3>
+  <ul>
+    <li><code>resolvePreemptionPolicy</code> 用 <code>client.ObjectKey{Name: priorityClassName}</code>(不帶 namespace)✔ 正確。</li>
+    <li>Helm 只能用 ClusterRole + ClusterRoleBinding。PR 的 <code>helm-chart/kuberay-operator/templates/priorityclass_role.yaml</code> 有做對,註解也說明「即使 <code>singleNamespaceInstall=true</code> 仍然 cluster-scoped」→ 代表<strong>叢集層級的讀權限無條件增加</strong>,跟 operator 只 watch 哪個 namespace 無關,Role 無法縮小範圍(namespace 對 cluster-scoped resource 沒有意義)。</li>
+    <li>Dev overlay patch 的 target 是 ClusterRole(<code>ray-operator/config/overlays/kubernetes-was-v1alpha3/kustomization.yaml:21-25</code>)✔ 沒問題。</li>
+    <li>為什麼需要 <code>list</code> + <code>watch</code>:operator 用的是 <code>mgr.GetClient()</code>(cached client,<code>main.go:333</code>),Get 會啟動 <strong>cluster-scoped informer</strong>,把整個叢集的 PriorityClass 都 cache 進 memory。改用 <code>mgr.GetAPIReader()</code>(uncached)就只需要 <code>get</code>,也不會快取全叢集 PriorityClass。</li>
+  </ul>
+
+  <h3>3.2 額外發現:<code>globalDefault</code> PriorityClass 的邊界情況(PR 沒涵蓋)</h3>
+  <p>PriorityClass 是 cluster-scoped ⇒ <code>globalDefault: true</code> 是<strong>叢集層級</strong>概念。operator 的 workaround 只涵蓋「head pod 明確指定 PriorityClass」,漏掉「沒指定」的路徑:</p>
+  <ol class="flow">
+    <li><div class="step"><h4>head pod 沒設 <code>priorityClassName</code></h4><p>operator 傳空字串 → <code>resolvePreemptionPolicy</code> 直接回 <code>nil</code>(不查)</p></div></li>
+    <li><div class="step"><h4>apiserver defaulting(gate 開)</h4><p><code>SetDefaults_PodGroup</code> 設成 <code>PreemptLowerPriority</code></p></div></li>
+    <li><div class="step key"><h4>Priority admission plugin</h4><p><code>establishPriority("")</code> fallback 到 <strong>globalDefault 的 PriorityClass</strong>;若該 class policy 是 <code>Never</code> → 與 defaulting 值不一致 → <strong>Forbidden</strong></p></div>
+      <div class="side"><strong>PodGroup 建不起來</strong><br>gang scheduling 讓整個 RayCluster 卡住</div></li>
+  </ol>
+  <p><strong>這是「叢集層級設定」觸發的,使用者自己完全沒設任何 priority 設定。</strong>而且 <code>globalDefault</code> 的 PriorityClass 只允許一個(priority admission plugin 的 <code>validatePriorityClass</code> 會擋第二個),所以是「全叢集單點」風險,影響所有沒設 <code>priorityClassName</code> 的 RayCluster。</p>
+  <p><strong>修法建議:</strong><code>priorityClassName</code> 為空時也要查 <strong>globalDefault</strong> 的 PriorityClass 決定要寫進 PodGroup 的 policy(或一律把 PodGroup 的 <code>preemptionPolicy</code> 設成 apiserver 實際會解析出的值)。目前 upstream 這個 defaulting-before-admission 的 bug 只被繞過了一半。</p>
+
+  <div class="note">
+    <p><strong>對照:Pod 沒有同樣問題。</strong><code>SetDefaults_Pod</code> / <code>SetDefaults_PodSpec</code> 完全不碰 <code>preemptionPolicy</code>,一律留給 Priority admission plugin 從 class 解析,所以 <code>globalDefault</code> + <code>Never</code> 對 pod 一直正常。</p>
+  </div>
+
+  <h2>4. 建議在 PR 上提出的 review 問題</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>#</th><th>嚴重度</th><th>問題</th><th>位置</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td><span class="sev high">High</span></td>
+          <td><code>globalDefault</code> + <code>Never</code> 的 PriorityClass 會讓 PodGroup 被 apiserver 拒絕,RayCluster 卡死(PR 的 workaround 只覆蓋一半)</td>
+          <td><code>kubernetes_was_v1alpha3.go:250</code><br><code>resolvePreemptionPolicy</code></td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td><span class="sev high">High</span></td>
+          <td>PriorityClass lookup <strong>fail closed</strong>:Get 失敗(含 Forbidden)會擋住 PodGroup 建立 → 擋住整個 RayCluster。已存在但沒更新 helm ClusterRole 的使用者會直接卡住</td>
+          <td><code>kubernetes_was_v1alpha3.go:250-265</code><br><code>:133</code>、<code>:182</code></td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td><span class="sev med">Medium</span></td>
+          <td>沒有任何機制偵測 <code>PodGroupPreemptionPolicy</code> gate 是否開啟 → 使用者設定 <code>Never</code> 但被靜默忽略,零提示</td>
+          <td>同上 / <code>docs/guidance/kubernetes-was.md</code></td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td><span class="sev med">Medium</span></td>
+          <td>只有 head 的 <code>priorityClassName</code> / <code>preemptionPolicy</code> 被複製到 PodGroup;worker group 不一致 → scheduler 拒絕整個 gang,錯誤訊息難懂。<strong>這才是真正適合放 validation rule 的地方</strong></td>
+          <td><code>kubernetes_was_v1alpha3.go:267-316</code><br><code>buildSchedulingResources</code></td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td><span class="sev low">Low</span></td>
+          <td>文件敘述不準:不是「operator 沒設」,是「apiserver drop 掉」</td>
+          <td><code>docs/guidance/kubernetes-was.md</code></td>
+        </tr>
+        <tr>
+          <td>6</td>
+          <td><span class="sev low">Low</span></td>
+          <td>RBAC 過寬:只需 <code>get</code>,卻給了 <code>list</code> + <code>watch</code>(cached client 導致),並會快取全叢集 PriorityClass。改用 <code>mgr.GetAPIReader()</code> 可只留 <code>get</code></td>
+          <td><code>helm-chart/kuberay-operator/templates/priorityclass_role.yaml</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>5. #4 詳情:真正值得加 validation rule 的地方</h2>
+  <p>operator 只把 <strong>head</strong> 的 priority 欄位複製到 Workload template / PodGroup:</p>
+  <pre><code>priorityClassName := rayCluster.Spec.HeadGroupSpec.Template.Spec.PriorityClassName</code></pre>
+  <p>但 kube-scheduler 要求 PodGroup 內<strong>所有</strong> pod 的 priority / preemptionPolicy 一致:</p>
+  <ul>
+    <li><code>all pods in a single pod group should have the same priority as the pod group</code></li>
+    <li><code>all pods in a single pod group should have the same preemption policy as the pod group's preemption policy</code></li>
+  </ul>
+  <p>所以 worker group 用了不同(或沒用)<code>priorityClassName</code> 的 RayCluster 會變成永久排不上去的 gang,只有 scheduler 的模糊錯誤。可以在 <code>ray-operator/pkg/webhooks/v1/raycluster_webhook.go:49</code>(<code>validateRayCluster</code>)加一條:head 與所有 worker group 的 <code>priorityClassName</code> / pod-level <code>preemptionPolicy</code> 必須一致,否則 admission 直接擋掉。</p>
+
+  <h2>附錄 A:上游行為速查(K8s 1.37)</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>面向</th><th>行為</th><th>來源</th></tr></thead>
+      <tbody>
+        <tr><td><code>PodGroupPreemptionPolicy</code> gate</td><td>Alpha,1.37 預設關閉;1.38 才升 Beta</td><td>feature gates 表 / KEP-5710</td></tr>
+        <tr><td><code>GenericWorkload</code> gate</td><td>1.37 Beta(預設關閉);v1alpha2 → v1alpha3 整個替換</td><td>v1.37 release blog</td></tr>
+        <tr><td>gate 關閉時設定 <code>preemptionPolicy</code></td><td>create <strong>成功</strong>,欄位被 <code>PrepareForCreate</code> drop(不是 Forbidden)</td><td><code>pkg/registry/scheduling/{podgroup,workload}/strategy.go</code></td></tr>
+        <tr><td>gate 開啟時未設定</td><td>defaulting 補 <code>PreemptLowerPriority</code>(<strong>在 admission 之前</strong>)→ 與 <code>Never</code> class 衝突 → Forbidden</td><td><code>pkg/apis/scheduling/v1alpha3/defaults.go</code></td></tr>
+        <tr><td>PodGroup 的 priority / policy 解析</td><td>Priority admission plugin(僅 create);<code>priorityClassName</code> 空 → fallback globalDefault</td><td><code>plugin/pkg/admission/priority/admission.go</code></td></tr>
+        <tr><td>Pod 的 priority / policy 解析</td><td>同上 plugin;pod 的 <code>preemptionPolicy</code> <strong>沒有</strong> defaulting,所以不會衝突</td><td><code>pkg/apis/core/v1/defaults.go</code></td></tr>
+        <tr><td>Workload template 間一致性</td><td>API validation 要求所有 template 的 priority / priorityClassName 相同</td><td><code>pkg/apis/scheduling/validation/validation.go</code><br><code>validateWorkloadPriority</code></td></tr>
+        <tr><td>scheduler 端一致性檢查</td><td>所有 pod 的 priority 與 preemptionPolicy 必須與 PodGroup 一致</td><td>KEP-5710 / v1.37 blog</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>附錄 B:PriorityClass 資源結構(<code>scheduling.k8s.io/v1</code>)</h2>
+  <pre><code>apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: high-priority
+value: 1000000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: "Mission critical workload priority"</code></pre>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>欄位</th><th>型別</th><th>必要</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td><code>value</code></td><td>integer</td><td>✔</td><td>優先級數值,數字越大優先級越高。使用者自訂上限 <code>1,000,000,000</code>(<code>HighestUserDefinablePriority</code>),超過會被 API 拒絕</td></tr>
+        <tr><td><code>globalDefault</code></td><td>boolean</td><td>—</td><td>是否作為<strong>全叢集</strong>未指定 <code>priorityClassName</code> 時的預設值。整個叢集最多只能有一個為 <code>true</code></td></tr>
+        <tr><td><code>preemptionPolicy</code></td><td>string</td><td>—</td><td>搶佔行為:<code>PreemptLowerPriority</code>(預設,可搶佔低優先級)/ <code>Never</code>(不搶佔,排隊等資源)</td></tr>
+        <tr><td><code>description</code></td><td>string</td><td>—</td><td>文字描述</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>與本 PR 的關聯</h3>
+  <ul>
+    <li><strong><code>globalDefault</code> 是叢集層級概念</strong>,正是 3.2 那個 edge case 的根因。</li>
+    <li><strong><code>preemptionPolicy</code> 的傳遞鏈</strong>:<code>PriorityClass.preemptionPolicy</code> →(Priority admission plugin)→ <code>Pod.spec.preemptionPolicy</code> 與(gate 開啟時)<code>PodGroup.spec.preemptionPolicy</code>。要讓整個 gang 不搶佔,class / 每個 pod / PodGroup 三邊必須一致。</li>
+    <li><strong>class 自己的 <code>preemptionPolicy</code> 可以是 nil</strong>:API 層面 PriorityClass 的 <code>preemptionPolicy</code> 是選填、預設 nil;真正「預設值是 <code>PreemptLowerPriority</code>」指的是 <strong>pod / PodGroup 解析後的 effective policy</strong>。PR 的 <code>resolvePreemptionPolicy</code> 正是照這個語意(class 沒設 policy 時回 <code>PreemptLowerPriority</code>,<code>kubernetes_was_v1alpha3.go:260-263</code>)。</li>
+    <li><strong>system priority class 例外</strong>:<code>system-node-critical</code>(2,000,000,000)與 <code>system-cluster-critical</code>(2,000,001,000)大於 1e9,屬保留名稱,只有 <code>system-</code> 前綴的 class 允許超過上限(<code>ValidatePriorityClass</code>)。這兩個 class 的 <code>preemptionPolicy</code> 固定是 <code>PreemptLowerPriority</code>、<code>globalDefault</code> 不適用。</li>
+  </ul>
+</main>
+</body>
+</html>
