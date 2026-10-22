@@ -282,6 +282,52 @@ PriorityClass name</code></pre>
   </ul>
   <p>所以 worker group 用了不同(或沒用)<code>priorityClassName</code> 的 RayCluster 會變成永久排不上去的 gang,只有 scheduler 的模糊錯誤。可以在 <code>ray-operator/pkg/webhooks/v1/raycluster_webhook.go:49</code>(<code>validateRayCluster</code>)加一條:head 與所有 worker group 的 <code>priorityClassName</code> / pod-level <code>preemptionPolicy</code> 必須一致,否則 admission 直接擋掉。</p>
 
+  <h2>6. <code>new(expr)</code> vs <code>ptr.To(...)</code></h2>
+
+  <p class="q"><code>preemptionPolicy = new(schedulingv1alpha3.PreemptionPolicy(*p))</code> vs <code>ptr.To(...)</code>?</p>
+
+  <p><strong>結論:效果相同;在這個 repo 的 production code 用 <code>new(...)</code> 才符合規範,PR 寫法沒問題。</strong>(<code>buildSchedulingResources</code>,<code>kubernetes_was_v1alpha3.go:267</code> 起)</p>
+
+  <h3>6.1 語意</h3>
+  <pre><code>preemptionPolicy = new(schedulingv1alpha3.PreemptionPolicy(*p))   // Go 1.26 起支援 new(expr)
+preemptionPolicy = ptr.To(schedulingv1alpha3.PreemptionPolicy(*p)) // k8s.io/utils/ptr</code></pre>
+  <ul>
+    <li>兩者都配置一個新變數、把值複製進去、回傳指標。<code>ptr.To</code> 的實作就是 <code>func To[T any](v T) *T { return &amp;v }</code>。</li>
+    <li><code>new(expr)</code> 是語言功能,不用 import;<code>ptr.To</code> 是函式,舊版 Go 也能用。編譯後基本相同。</li>
+  </ul>
+
+  <h3>6.2 KubeRay 的規範與時間線</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>時間</th><th>事件</th></tr></thead>
+      <tbody>
+        <tr><td>Go 1.26 之前</td><td><code>new</code> 只能接型別。要「指向某個值的指標」只能用 helper:早期 <code>pointer.Int32(...)</code> 等分型別函式,後來統一成泛型 <code>ptr.To</code></td></tr>
+        <tr><td><code>d7855fbec</code>(#4597)</td><td>KubeRay 升到 Go 1.26(<code>ray-operator/go.mod</code>:<code>go 1.26.0</code>)</td></tr>
+        <tr><td><code>11de28835</code>(#5019,2026-07-24)</td><td><code>.golangci.yml</code> 開啟 modernize 的 <code>newexpr</code> 檢查,當時被標出的 <code>ptr.To</code> 全改成 <code>new(...)</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li>現況:非測試程式碼有 9 處 <code>new(expr)</code>(例如 <code>rayservice_controller.go:1095</code> <code>new(gwv1.Namespace(...))</code>)。</li>
+    <li>仍有 <code>ptr.To</code>:非測試 7 處(例如 <code>raycluster_controller.go:1880</code> <code>ptr.To[int32](0)</code>)、測試約 205 處(本 PR 的測試也用 <code>ptr.To</code>,與其他測試一致)。推測是 <code>newexpr</code> 沒標出的形式,例如帶明確型別參數;analyzer 確切規則<strong>未查證</strong>。</li>
+    <li>review 時不需為此提意見:CI 會跑 golangci-lint,該改的會被抓。</li>
+  </ul>
+
+  <h3>6.3 為什麼印象中都是 <code>ptr.To</code></h3>
+  <ul>
+    <li>讀的是 2026-07 以前的 KubeRay:當時 production code 全是 <code>ptr.To</code>。</li>
+    <li>讀的是測試:到現在還有大量 <code>ptr.To</code>。</li>
+    <li>讀的是其他 K8s 生態專案:kubernetes/kubernetes、controller-runtime、多數 operator 用 <code>ptr.To</code> 很久了,要等它們的 Go 升到 1.26 才能改。</li>
+  </ul>
+  <p><strong>判斷方式:</strong>看該 repo 的 <code>go.mod</code>。1.26 以上且有開 <code>newexpr</code> → 用 <code>new(expr)</code>;否則用 <code>ptr.To</code>。</p>
+
+  <h3>6.4 真正要注意的是「複製」</h3>
+  <p><code>corev1.PreemptionPolicy</code> 與 <code>schedulingv1alpha3.PreemptionPolicy</code> 底層都是 <code>string</code>,Go 也允許直接轉指標型別:</p>
+  <pre><code>preemptionPolicy = (*schedulingv1alpha3.PreemptionPolicy)(p) // 能編譯,但不要這樣寫</code></pre>
+  <div class="note">
+    <p>這樣 Workload / PodGroup 的欄位會和 RayCluster spec <strong>共用同一塊記憶體</strong>。RayCluster 通常來自 controller-runtime 的 cache,共用指標可能在之後修改時改到 cache 裡的物件。PR 用 <code>new(T(*p))</code> 先解參考再複製,沒有這個問題;換成 <code>ptr.To</code> 也一樣安全,兩者只是風格差異。</p>
+  </div>
+
   <h2>附錄 A:上游行為速查(K8s 1.37)</h2>
   <div class="tablewrap">
     <table>

@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Priority and Preemption</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  .flow { list-style: none; padding: 0; margin: 12px 0 18px; max-width: none; counter-reset: step; }
+  .flow > li { position: relative; margin: 0 0 20px; display: grid; grid-template-columns: 1fr 220px; gap: 16px; align-items: start; }
+  .flow > li:not(:last-child)::after { content: ""; position: absolute; left: 32px; bottom: -20px; height: 20px; border-left: 1px solid var(--rule); }
+  .step { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 12px 16px; counter-increment: step; }
+  .step h4 { margin: 0 0 2px; font-size: 0.98rem; }
+  .step h4::before { content: counter(step) " · "; font-family: var(--font-mono); color: var(--muted); }
+  .step p { margin: 0; font-size: 0.88rem; color: var(--muted); }
+  .step.key { border: 2px solid var(--accent); background: var(--accent-soft); }
+  .step.key p { color: var(--ink); }
+  .side { font-size: 0.86rem; border-radius: 6px; padding: 10px 12px; background: var(--warn-soft); border-left: 3px solid var(--warn); }
+  .side strong { color: var(--warn); }
+
+  .sev { font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+  .sev.high { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn); }
+  .sev.med { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .sev.low { color: var(--muted); background: var(--code-bg); border: 1px solid var(--rule); }
+
+  @media (max-width: 600px) {
+    .flow > li { grid-template-columns: 1fr; gap: 8px; }
+  }
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Kubernetes 概念 · Priority &amp; Preemption</p>
+  <h1>PriorityClass 與 Preemption</h1>
+  <p class="meta">整理自 2026-10-22 的問答 · 起因:review KubeRay #5266 時對 <code>preemptionPolicy: Never</code> 的疑問 · 相關筆記:<a href="kuberay-was-integration-overview-notes.html">Kubernetes WAS Overview</a>、<a href="kuberay-was-priorityclass-preemption-notes.html">WAS PriorityClass &amp; PreemptionPolicy</a></p>
+
+  <div class="verdict">
+    <p><strong>三句話:</strong></p>
+    <ul>
+      <li><strong>Preemption 只發生在 kube-scheduler 排程時</strong>:一個 Pending 的 pod(或 gang)排不進去,scheduler 才考慮驅逐別人。</li>
+      <li><strong><code>preemptionPolicy</code> 管的是「我會不會去搶別人」</strong>,不是「別人能不能搶我」。<code>Never</code> 的 pod 照樣會被更高 priority 的 pod 搶。</li>
+      <li><strong>WAS 的 <code>Never</code> 會被拒絕是 upstream bug</strong>(PodGroup 多做了一個 Pod 沒有的預設值),不是 <code>Never</code> 不能用。</li>
+    </ul>
+  </div>
+
+  <h2>1. <code>scheduling.k8s.io</code> 裡有什麼</h2>
+  <p>這個 API group 的資源主要都是給 kube-scheduler 用的。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>資源</th><th>誰用、怎麼用</th></tr></thead>
+      <tbody>
+        <tr><td><code>PriorityClass</code>(v1,cluster-scoped)</td><td>priority admission 在建立 pod 時,把 <code>value</code> 寫進 <code>pod.spec.priority</code>、把 <code>preemptionPolicy</code> 寫進 pod;scheduler 再拿來排序與做 preemption</td></tr>
+        <tr><td><code>Workload</code> / <code>PodGroup</code>(v1alpha3,K8s 1.37)</td><td>kube-scheduler 以 PodGroup 為單位做 gang 決策(湊滿 <code>minCount</code> 才放行)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>2. Preemption 什麼時候發生</h2>
+  <ol class="flow">
+    <li><div class="step"><h4>pod 是 Pending,scheduler 嘗試排它</h4><p>依 priority 從排程佇列取出,高的先排。</p></div>
+      <div class="side"><strong>priority 的第一個作用</strong><br>決定排隊順序</div></li>
+    <li><div class="step"><h4>Filter 找不到放得下的節點</h4><p>所有節點都因資源或約束不符被濾掉。</p></div>
+      <div class="side"><strong>放得下就不會 preempt</strong><br>直接 bind</div></li>
+    <li><div class="step key"><h4>進入 PostFilter:<code>DefaultPreemption</code> plugin</h4><p>這時才讀<strong>這個待排 pod 自己的</strong> <code>preemptionPolicy</code>:<code>Never</code> → 不搶,回佇列等;<code>PreemptLowerPriority</code> → 挑 priority 比它低的 victim 驅逐,騰出位置。</p></div>
+      <div class="side"><strong>唯一讀 preemptionPolicy 的時刻</strong><br>pod 跑起來之後這個欄位就沒作用了</div></li>
+  </ol>
+  <p>所以「被搶」是因為<strong>別的</strong> Pending pod 進了 PostFilter,挑中你當 victim;跟你自己的 <code>preemptionPolicy</code> 無關。</p>
+
+  <h2>3. <code>Never</code> 到底是什麼意思</h2>
+  <p class="q">priority class: Never 那沒有人可以 preempt 他們?</p>
+  <p><strong>不是,方向剛好相反。</strong><code>Never</code> 就是 non-preempting priority(K8s 1.24 GA):在排隊時享有高 priority,但不會為了自己去踢人。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>行為</th><th><code>PreemptLowerPriority</code>(預設)</th><th><code>Never</code></th></tr></thead>
+      <tbody>
+        <tr><td>排程佇列中照 priority 排順序</td><td>✅</td><td>✅</td></tr>
+        <tr><td>資源不夠時,<strong>驅逐</strong>比它低的 pod</td><td>✅</td><td>❌ 只會等</td></tr>
+        <tr><td><strong>被</strong>比它高、且可搶佔的 pod 驅逐</td><td>會</td><td><strong>一樣會</strong></td></tr>
+        <tr><td>kubelet node-pressure eviction</td><td>會(參考 priority)</td><td>一樣會(不看 preemptionPolicy)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="cap">例子:Ray 叢集用 <code>value: 1000, preemptionPolicy: Never</code></p>
+  <ul>
+    <li>來一個 <code>value: 500</code> 的 pod、資源不夠 → Ray 叢集不會踢它,自己排隊等。</li>
+    <li>來一個 <code>value: 2000</code>、policy 預設的 pod、資源不夠 → Ray 的 pod 照樣被驅逐。</li>
+  </ul>
+
+  <h3>想要「不被搶」要靠別的機制</h3>
+  <ul>
+    <li><strong>priority 調高</strong>:比你高的工作少,被搶的機會就少(<code>system-cluster-critical</code> 這類數值很高的 class 不該給一般工作用)。</li>
+    <li><strong>PodDisruptionBudget</strong>:scheduler preemption 只是盡量遵守、不保證;PDB 主要擋 drain 這類自願驅逐。</li>
+    <li><strong>切開資源</strong>:taint/toleration、獨立 node pool、ResourceQuota。</li>
+  </ul>
+
+  <h2>4. priority 在 scheduling 以外的用途</h2>
+  <ul>
+    <li><strong>kubelet node-pressure eviction</strong>:記憶體/磁碟不足時,kubelet 參考 priority 決定先驅逐誰,<strong>完全不看</strong> <code>preemptionPolicy</code>。</li>
+    <li><strong>ResourceQuota</strong>:可用 <code>scopeSelector</code> 依 PriorityClass 分開設額度。</li>
+  </ul>
+
+  <h2>5. 放到 WAS:PodGroup 的 preemptionPolicy</h2>
+  <p>K8s 1.37 的 <code>PodGroupPreemptionPolicy</code> gate 把同一個概念延伸到 gang:scheduler 為整個 PodGroup 湊 <code>minCount</code> 湊不滿時,才決定要不要搶。<code>Never</code> = 整組一起等,不踢人。</p>
+  <ul>
+    <li>scheduler 以整組為單位排序與做 preemption,所以要求 <strong>PodGroup 與其每個 pod 的 priority 一致</strong>。KubeRay 因此必須讓 head 與所有 worker group 用同一個 PriorityClass。</li>
+    <li>policy 有兩個來源:PodGroup 的 <code>spec.preemptionPolicy</code> 與 PriorityClass 的 <code>preemptionPolicy</code>。priority admission 以 class 為準,PodGroup 上若有值就必須一致。</li>
+  </ul>
+  <div class="note">
+    <p><strong>未查證:</strong>gang 中有 pod 被搶之後,整組怎麼處理(PodGroup 的 <code>disruptionMode</code> 與 1.37 的 gang preemption 行為)還沒讀 upstream 程式碼確認。</p>
+  </div>
+
+  <h2>6. 為什麼 WAS 的 <code>Never</code> 會被拒絕</h2>
+  <p class="q">「Kubernetes defaults an unset PodGroup preemptionPolicy before admission, rejecting Never」那為什麼還要有 Never 這個選項?</p>
+  <p><code>Never</code> 是正式選項;被拒絕是 upstream bug,而且<strong>只在一種組合</strong>發生。API defaulting(<code>SetDefaults_PodGroup</code>)比 priority admission 先跑:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>PodGroup <code>spec.preemptionPolicy</code></th><th>PriorityClass</th><th>結果</th></tr></thead>
+      <tbody>
+        <tr><td>明確寫 <code>Never</code></td><td><code>Never</code></td><td>✅ 通過</td></tr>
+        <tr><td>沒寫</td><td><code>PreemptLowerPriority</code> 或沒設</td><td>✅ 被補成 <code>PreemptLowerPriority</code>,剛好一致</td></tr>
+        <tr><td><strong>沒寫</strong></td><td><strong><code>Never</code></strong></td><td>❌ defaulting 先補成 <code>PreemptLowerPriority</code> → admission 判定與 class 衝突 → Forbidden</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li><strong>Pod 沒有這個問題</strong>:Pod 的 <code>preemptionPolicy</code> 沒有 API defaulting,留空由 admission 從 PriorityClass 補上。PodGroup 加欄位時多做了一個 Pod 沒有的預設值。</li>
+    <li><strong>upstream 修正</strong>:<a href="https://github.com/kubernetes/kubernetes/issues/143252">kubernetes#143252</a> / <a href="https://github.com/kubernetes/kubernetes/pull/143253">#143253</a>(OPEN),拿掉 PodGroup / CompositePodGroup 的 preemptionPolicy defaulting,"matching the Pod admission flow"。</li>
+    <li><strong>KubeRay 的 workaround</strong>(<code>resolvePreemptionPolicy</code>):create 前自己讀 PriorityClass,把 policy 明確寫成 <code>Never</code>,落在表格第一列。</li>
+  </ul>
+  <p class="cap">建議把 KubeRay 那句容易誤讀的註解改成</p>
+  <pre><code>// Kubernetes 1.37 defaults an unset PodGroup preemptionPolicy to PreemptLowerPriority
+// before priority admission runs, so a PriorityClass with preemptionPolicy: Never is
+// rejected as a mismatch. Set the policy from the class explicitly to avoid that.
+// See https://github.com/kubernetes/kubernetes/issues/143252</code></pre>
+</main>
+</body>
+</html>

@@ -177,13 +177,96 @@
       <div class="side"><strong>只處理 RayCluster</strong><br>傳入 RayJob 一律 no-op</div></li>
   </ol>
 
-  <h2>4. 一次 RayCluster reconcile 會發生什麼</h2>
+  <h2>4. Operator 與 scheduler 怎麼分工</h2>
+
+  <p class="q">這跟 operator 有關嗎?它歸在 batch-scheduler 底下。</p>
+  <p><strong>有關,它就是 operator 的程式碼。</strong><code>batchscheduler</code> 是 <code>ray-operator</code> 裡的 package,和 RayCluster controller 跑在同一個 process,不是另外部署的元件。開關是 operator 的啟動參數(<code>--feature-gates=KubernetesWAS=true</code>),權限用的是 operator 的 ServiceAccount — 所以 #5266 讀 PriorityClass 的 RBAC 加在 kuberay-operator Helm chart 的 ClusterRole 上。</p>
+  <pre><code>ray-operator/                          ← kuberay-operator binary
+└── controllers/ray/
+    ├── raycluster_controller.go       ← RayCluster reconciler
+    ├── rayjob_controller.go
+    └── batchscheduler/                ← 排程器整合 adapter(plugin)
+        ├── interface/                 ← BatchScheduler 介面
+        ├── schedulermanager.go        ← 依設定挑一個 plugin
+        ├── volcano/  yunikorn/  kai-scheduler/  scheduler-plugins/
+        └── kubernetes-was/v1alpha3/</code></pre>
+  <p><code>batchscheduler</code> 這個名字容易誤會:裡面的程式碼<strong>不做排程</strong>,只負責 (1) 依各排程器的格式建立物件(Volcano 的 PodGroup、WAS 的 Workload + PodGroup),(2) 在 pod 寫上 <code>schedulerName</code>、label 或 <code>schedulingGroup</code>。實際決策由外部排程器做:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>plugin</th><th>實際排程的是誰</th><th>需要另外裝?</th></tr></thead>
+      <tbody>
+        <tr><td>volcano / yunikorn / kai-scheduler</td><td>各自的 scheduler</td><td>要</td></tr>
+        <tr><td>scheduler-plugins</td><td>裝了 coscheduling plugin 的 scheduler</td><td>要</td></tr>
+        <tr><td><strong>kubernetes-was</strong></td><td><strong>K8s 內建 <code>default-scheduler</code></strong></td><td><strong>不用</strong>,但要開 K8s feature gate</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>4.1 兩層契約:interface 不是給 scheduler 用的</h3>
+  <p class="q">這些 scheduler plugin interface 實際上怎麼被 scheduler 使用?</p>
+  <p><strong>不會被任何 scheduler 呼叫。</strong>呼叫它們的只有 KubeRay operator 自己;operator 和 scheduler 之間沒有函式呼叫,只透過 API 上的物件溝通。</p>
+  <pre><code>┌─────────────── kuberay-operator process ───────────────┐
+│  RayCluster / RayJob controller                         │
+│        │ 呼叫 Go interface(BatchScheduler)            │
+│        ▼                                                │
+│  batchscheduler plugin(volcano / kubernetes-was / ...)│
+└────────┬────────────────────────────────────────────────┘
+         │ create / update / delete K8s 物件
+         ▼
+   kube-apiserver:Workload、PodGroup、Pod(schedulerName、schedulingGroup)
+         ▲
+         │ watch
+   kube-scheduler(或 Volcano、YuniKorn 等)</code></pre>
+  <ul>
+    <li><strong>Go interface</strong>(<code>batchscheduler/interface/</code>):operator 內部的抽象,讓 controller 不用知道背後是哪個排程器。</li>
+    <li><strong>K8s 物件</strong>:operator 與 scheduler 真正的契約。scheduler 只認 <code>pod.spec.schedulerName</code>、<code>pod.spec.schedulingGroup</code>、PodGroup 的 <code>minCount</code> / <code>priorityClassName</code> 等欄位,不知道 KubeRay 存在。</li>
+  </ul>
+
+  <h3>4.2 啟動時:operator 怎麼接上 plugin</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>步驟</th><th>位置</th><th>做什麼</th></tr></thead>
+      <tbody>
+        <tr><td>驗證設定</td><td><code>main.go:216</code> <code>ValidateBatchSchedulerConfig</code></td><td>WAS 不能和 <code>--batch-scheduler</code> 一起開</td></tr>
+        <tr><td>建立 manager</td><td><code>main.go:333</code> <code>NewSchedulerManager</code></td><td>挑出 <code>BatchSchedulerFactory</code>,<code>factory.New()</code> 產生 <code>BatchScheduler</code>;WAS 在這裡用 discovery 選 v1alpha3</td></tr>
+        <tr><td>註冊型別</td><td><code>main.go:335</code> <code>AddToScheme</code></td><td>把 Workload / PodGroup 加進 client scheme,否則 client 讀寫不了</td></tr>
+        <tr><td>設定 watch</td><td><code>raycluster_controller.go:1949</code> <code>ConfigureReconciler</code></td><td><code>Owns(Workload)</code>、<code>Owns(PodGroup)</code>,變動時觸發 RayCluster reconcile</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>4.3 Reconcile 時:三個 hook 的呼叫點</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Hook</th><th>呼叫點</th><th>WAS 實作</th></tr></thead>
+      <tbody>
+        <tr><td><code>DoBatchSchedulingOnSubmission</code></td><td><code>raycluster_controller.go:993</code>(建 pod 前)、<code>rayjob_controller.go:201</code></td><td>建立/更新 Workload 與 PodGroup;RayJob → no-op</td></tr>
+        <tr><td><code>AddMetadataToChildResource</code></td><td><code>raycluster_controller.go:1648/1671/1695</code>、<code>rayjob_controller.go:579/979</code></td><td>pod 寫上 <code>schedulerName: default-scheduler</code> 與 <code>schedulingGroup</code>;非 RayCluster parent → no-op</td></tr>
+        <tr><td><code>CleanupOnCompletion</code></td><td><code>rayjob_controller.go:1678</code>(RayJob 結束)</td><td>RayJob → no-op;WAS 只在 RayCluster 不再需要 gang 時自己內部呼叫</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>pod 建好後,kube-scheduler watch 到 Pending pod → <code>schedulerName</code> 是自己就接手 → 讀 <code>schedulingGroup</code> 找到 PodGroup → 依 <code>minCount</code> 做 all-or-nothing,依 priority / <code>preemptionPolicy</code> 決定是否搶佔。#5266 的效果就在這一步:operator 把 priority 寫進 PodGroup,scheduler 才能照它做 preemption。</p>
+
+  <h3>4.4 容易混淆的名詞</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>名詞</th><th>指的是</th></tr></thead>
+      <tbody>
+        <tr><td>KubeRay 的 <code>BatchScheduler</code> interface、<code>batchscheduler/*</code></td><td>operator 內部的 adapter</td></tr>
+        <tr><td>KubeRay 的 <code>batchscheduler/scheduler-plugins/</code></td><td>其中一個 adapter,對接 kubernetes-sigs/scheduler-plugins 的 coscheduling</td></tr>
+        <tr><td>kube-scheduler 的 scheduling framework plugin(Filter、Score、PostFilter,例如 <code>DefaultPreemption</code>)</td><td>跑在 scheduler process 裡的排程邏輯,跟 KubeRay 無關</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>5. 一次 RayCluster reconcile 會發生什麼</h2>
   <ol class="flow">
     <li><div class="step"><h4>進 reconcilePods,先跑 DoBatchSchedulingOnSubmission</h4><p><code>raycluster_controller.go:993</code>:<strong>每次</strong> reconcile、在建立任何 pod 之前呼叫。回錯就整次 reconcile 中止並 requeue。</p></div>
       <div class="side"><strong>錯誤即重試</strong><br>WAS 大量用「回 error 等下一輪」來排序刪除/重建</div></li>
     <li><div class="step"><h4>判斷要不要 gang</h4><p><code>was_v1alpha3.go:386</code> <code>schedulingSkipReason</code>:沒有 opt-in label,或 <code>enableInTreeAutoscaling: true</code> → 跳過,並呼叫 <code>CleanupOnCompletion</code> 把之前建的 Workload/PodGroup 刪掉。</p></div>
       <div class="side"><strong>autoscaling 不支援</strong><br>minCount 會跟著 replicas 跳,目前直接放棄 gang</div></li>
-    <li><div class="step key"><h4>sync Workload → sync PodGroup</h4><p><code>was_v1alpha3.go:114</code>:先 <code>buildSchedulingResources</code> 算出期望狀態,再依序 <code>syncWorkload</code>(:125)、<code>syncPodGroup</code>(:175)。不存在就 create;存在但過期就刪掉等下一輪重建(見第 6 節)。</p></div>
+    <li><div class="step key"><h4>sync Workload → sync PodGroup</h4><p><code>was_v1alpha3.go:114</code>:先 <code>buildSchedulingResources</code> 算出期望狀態,再依序 <code>syncWorkload</code>(:125)、<code>syncPodGroup</code>(:175)。不存在就 create;存在但過期就刪掉等下一輪重建(見第 7 節)。</p></div>
       <div class="side"><strong>PriorityClass lookup</strong><br>只發生在 create 分支(本 branch 新增)</div></li>
     <li><div class="step"><h4>建 pod 時掛上 gang</h4><p><code>raycluster_controller.go:1648 / 1671 / 1695</code>(head、worker、multi-host worker)→ <code>AddMetadataToChildResource</code>(<code>was_v1alpha3.go:70</code>):設 <code>schedulerName: default-scheduler</code>,以及 <code>spec.schedulingGroup.podGroupName = &lt;cluster&gt;-cluster</code>。</p></div>
       <div class="side"><strong>不分 group</strong><br>所有 pod 都指同一個 PodGroup</div></li>
@@ -191,7 +274,7 @@
       <div class="side"><strong>刪除 RayCluster</strong><br>靠 ownerReference GC 收掉 Workload/PodGroup</div></li>
   </ol>
 
-  <h2>5. KubeRay 產生的資源長相</h2>
+  <h2>6. KubeRay 產生的資源長相</h2>
   <div class="tablewrap">
     <table>
       <thead><tr><th>欄位</th><th>Workload</th><th>PodGroup</th></tr></thead>
@@ -208,7 +291,7 @@
   <pre><code>kubectl get pods -l ray.io/cluster=&lt;name&gt; \
   -o custom-columns=NAME:.metadata.name,GROUP:.spec.schedulingGroup.podGroupName</code></pre>
 
-  <h2>6. 叢集形狀改變時的處理</h2>
+  <h2>7. 叢集形狀改變時的處理</h2>
   <ul>
     <li><strong>Workload 過期</strong>(<code>isWorkloadStale</code>,<code>was_v1alpha3.go:398</code>:template 數量/名稱或 <code>minCount</code> 不同):Workload 不可變,只能砍掉重建。順序是<strong>先刪 PodGroup</strong>(它引用 Workload)→ 回 error → 下一輪再刪 Workload → 回 error → 再下一輪重新 create 兩者。</li>
     <li><strong>PodGroup 過期</strong>(只比 <code>gang.minCount</code>):刪掉重建。</li>
@@ -219,7 +302,7 @@
     <li><strong>priority 欄位不參與 stale 判斷</strong>:建立後就固定,要換 PriorityClass 得重建 RayCluster(本 branch 文件已註明)。</li>
   </ul>
 
-  <h2>7. 目前進行中:PriorityClass &amp; preemption(#5266)</h2>
+  <h2>8. 目前進行中:PriorityClass &amp; preemption(#5266)</h2>
   <p><strong>要解的問題</strong>:原本 Workload/PodGroup 不帶任何 priority,(1) 與 pod 的 priority 不一致,違反 scheduler 的要求;(2) 使用者無法讓整個 gang 以 <code>Never</code> 等待資源,只能用預設 <code>PreemptLowerPriority</code> 去搶。</p>
   <p><strong>做法</strong>:</p>
   <ul>
@@ -229,7 +312,7 @@
   </ul>
   <p>review 細節(gate 關閉時欄位被靜默 drop、globalDefault、gang 一致性驗證等)見 <a href="kuberay-was-priorityclass-preemption-notes.html">WAS PriorityClass &amp; PreemptionPolicy</a>。</p>
 
-  <h2>8. Upstream bug 與修正</h2>
+  <h2>9. Upstream bug 與修正</h2>
   <ol class="flow">
     <li><div class="step"><h4>API defaulting 先跑</h4><p><code>pkg/apis/scheduling/v1alpha3/defaults.go</code> <code>SetDefaults_PodGroup</code>:gate 開且 <code>preemptionPolicy</code> 為 nil → 補成 <code>PreemptLowerPriority</code>。</p></div>
       <div class="side"><strong>問題起點</strong><br>使用者沒填,卻被填了值</div></li>
@@ -242,7 +325,53 @@
     <li><strong>Workload 不受此 bug 影響</strong>:upstream master 的 Workload 沒有 preemptionPolicy defaulting,priority admission 也不處理 Workload。所以 <code>syncWorkload</code> 裡的 lookup 是為了與 PodGroup 一致,不是 workaround。</li>
   </ul>
 
-  <h2>9. 已知限制與待釐清</h2>
+  <h2>10. 和 KAI Scheduler 的 gang scheduling 比較</h2>
+  <p class="q">這跟目前 KAI scheduler 的 gang scheduling 比有什麼差?</p>
+  <p><strong>最大的差別在分工:</strong>KAI 是 KubeRay 只在 pod 上貼標籤,PodGroup 與排程都交給另外安裝的 KAI scheduler;WAS 是 KubeRay 自己建立 Workload + PodGroup,排程交給內建 kube-scheduler。</p>
+
+  <h3>10.1 KubeRay plugin 端(已讀程式碼確認)</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th></th><th>KAI(<code>batchscheduler/kai-scheduler/kai_scheduler.go</code>)</th><th>WAS(<code>kubernetes-was/v1alpha3/</code>)</th></tr></thead>
+      <tbody>
+        <tr><td>怎麼開</td><td><code>--batch-scheduler=kai-scheduler</code></td><td><code>--feature-gates=KubernetesWAS=true</code></td></tr>
+        <tr><td>誰建 PodGroup</td><td><strong>KAI 的 PodGrouper</strong> 在 runtime 依 pod owner 建立;plugin 註解寫明 "No PodGroup create/patch logic is included"</td><td><strong>KubeRay operator</strong> 自己建 Workload + PodGroup,並負責更新、過期重建、刪除</td></tr>
+        <tr><td>plugin 做什麼</td><td>pod 寫上 <code>schedulerName: kai-scheduler</code>;把 RayCluster 的 <code>kai.scheduler/queue</code> label 複製到 pod</td><td>建 Workload + PodGroup、算 <code>minCount</code>、設 <code>schedulingGroup</code>、處理 finalizer、帶 priority</td></tr>
+        <tr><td><code>AddToScheme</code> / <code>ConfigureReconciler</code></td><td>空的,不 watch 任何物件</td><td>註冊 v1alpha3 型別;<code>Owns(Workload)</code>、<code>Owns(PodGroup)</code></td></tr>
+        <tr><td>何時套用 gang</td><td>所有 RayCluster;沒有 queue label 的 pod 會一直 Pending(只記 log)</td><td>需 <code>ray.io/gang-scheduling-enabled: "true"</code></td></tr>
+        <tr><td>RayJob</td><td><code>K8sJobMode</code> 直接回錯:submitter pod 在叢集 ready 後才建,進不了 gang</td><td>hook 只處理 RayCluster;RayJob → no-op</td></tr>
+        <tr><td>Autoscaling</td><td>plugin 沒限制</td><td>直接跳過 gang</td></tr>
+        <tr><td>程式碼量</td><td>約 80 行</td><td>約 430 行</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>10.2 排程器本身</h3>
+  <div class="note">
+    <p><strong>未查證:</strong>KAI 這一欄是一般認識,沒有讀 KAI 原始碼或文件確認。</p>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th></th><th>KAI Scheduler(NVIDIA,源自 Run:ai)</th><th>K8s WAS(1.37 in-tree)</th></tr></thead>
+      <tbody>
+        <tr><td>部署</td><td>另外安裝 scheduler、PodGrouper、CRD(<code>scheduling.run.ai/v2</code> <code>Queue</code> 等)</td><td>不用裝;開 K8s feature gate 與 runtime-config</td></tr>
+        <tr><td>成熟度</td><td>已有正式產品在用</td><td>1.37 <strong>alpha</strong> API,下一版很可能再改</td></tr>
+        <tr><td>Queue 與配額</td><td><strong>階層式 Queue</strong>(範例 <code>team-a</code> 的 <code>parentQueue: department-1</code>),每種資源 quota / limit / <code>overQuotaWeight</code>,fair share 與 reclaim</td><td><strong>沒有 queue</strong>;配額只能靠 ResourceQuota 或另搭 Kueue</td></tr>
+        <tr><td>Preemption</td><td>依 queue 與 priority 決定 preempt / reclaim;priority 似乎以 PriorityClass 區分 train / build / inference 等用途</td><td>標準 PriorityClass;<code>PodGroupPreemptionPolicy</code> 支援 gang 層級 <code>Never</code>(#5266 在接這個)</td></tr>
+        <tr><td>GPU 特有功能</td><td>GPU sharing / fractional GPU(KubeRay 範例 <code>ray-cluster.kai-gpu-sharing.yaml</code>)、topology-aware</td><td>只有 gang all-or-nothing;1.37 有 TopologyAwareWorkloadScheduling gate,但 KubeRay 沒用</td></tr>
+        <tr><td>gang 粒度</td><td>PodGrouper 依 owner 推算</td><td>KubeRay 明確定義:整個 RayCluster 一個 gang,<code>minCount = 1 + desired replicas</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>10.3 怎麼選</h3>
+  <ul>
+    <li><strong>KAI</strong>:GPU 叢集、多團隊共用,需要 queue、配額、fair share 或 GPU 切分。KubeRay 端很薄,複雜度在 KAI 那側。</li>
+    <li><strong>WAS</strong>:只要「整個 RayCluster all-or-nothing」,不想多裝、維運另一套 scheduler。代價是 alpha API、沒有 queue 與配額,KubeRay 要自己管 PodGroup 生命週期 — 這也是 WAS PR 會碰到 RBAC、finalizer、過期重建與 upstream defaulting bug 的原因。</li>
+    <li>兩者在 KubeRay 只能擇一:<code>ValidateBatchSchedulerConfig</code> 會擋同時設定。</li>
+  </ul>
+
+  <h2>11. 已知限制與待釐清</h2>
   <div class="tablewrap">
     <table>
       <thead><tr><th>項目</th><th>現況</th><th></th></tr></thead>
