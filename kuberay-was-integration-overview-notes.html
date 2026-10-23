@@ -121,7 +121,7 @@
 <main>
   <p class="eyebrow">KubeRay 脈絡整理 · Kubernetes WAS(Workload-Aware Scheduling)</p>
   <h1>Kubernetes WAS × KubeRay 全貌</h1>
-  <p class="meta">整理於 2026-10-22 · branch <code>kubernetes-was-priority-preemption</code>(<code>e50c4ba4</code>)· 相關筆記:<a href="kuberay-was-priorityclass-preemption-notes.html">WAS PriorityClass &amp; PreemptionPolicy</a>(PR review 細節)、<a href="kuberay-operator-rbac-notes.html">Operator RBAC</a>(Helm / Kustomize 權限)</p>
+  <p class="meta">整理於 2026-10-22 · branch <code>kubernetes-was-priority-preemption</code>(<code>e50c4ba4</code>)· 相關筆記:<a href="kuberay-was-priorityclass-preemption-notes.html">WAS PriorityClass &amp; PreemptionPolicy</a>(PR review 細節)、<a href="kuberay-operator-rbac-notes.html">Operator RBAC</a>(Helm / Kustomize 權限)、<a href="kuberay-k8s-gang-scheduling-notes.html">Gang Scheduling Mechanics</a>、<a href="kuberay-k8s-apiserver-admission-notes.html">Apiserver Admission Flow</a></p>
 
   <div class="verdict">
     <p><strong>一句話:</strong>Kubernetes 1.37 把 gang scheduling 做進 in-tree(<code>Workload</code> + <code>PodGroup</code> API + 預設 kube-scheduler)。KubeRay 用 batch scheduler plugin 的形式接上它:每個 RayCluster 對應 <strong>一個 Workload + 一個 PodGroup</strong>,head 與所有 worker 都是同一個 gang,pod 透過 <code>spec.schedulingGroup</code> 掛上去。</p>
@@ -139,12 +139,12 @@
     <table>
       <thead><tr><th>時間</th><th>事件</th><th>重點</th></tr></thead>
       <tbody>
-        <tr><td>K8s 1.36</td><td>upstream:<code>scheduling.k8s.io/v1alpha2</code></td><td>KEP-4671 gang scheduling、Workload API 第一版</td></tr>
+        <tr><td>K8s 1.36</td><td>upstream:<code>scheduling.k8s.io/v1alpha2</code></td><td>KEP-4671 gang scheduling;已有 Workload 與<strong>獨立的 PodGroup 物件</strong>;<code>priorityClassName</code> / <code>priority</code> 已存在,但要開 <code>WorkloadAwarePreemption</code> gate(<code>GenericWorkload</code> 自 1.35 起為 alpha)</td></tr>
         <tr><td>2026-08-18</td><td>KubeRay <code>aac52c96</code> · #4962 Was v1alpha2 batch scheduler</td><td>首次整合(作者 Mark Rossetti / @marosset);Helm、e2e、docs 一起進來;最後收斂成「整個 RayCluster 一個 gang」</td></tr>
-        <tr><td>K8s 1.37</td><td>upstream:<code>scheduling.k8s.io/v1alpha3</code></td><td>KEP-5832 把 PodGroup 從 Workload 拆成獨立 runtime 物件;新增 <code>PodGroupPreemptionPolicy</code> gate</td></tr>
+        <tr><td>K8s 1.37</td><td>upstream:<code>scheduling.k8s.io/v1alpha3</code></td><td><code>priorityClassName</code> 不再需要額外 gate;新增 <code>preemptionPolicy</code>(<code>PodGroupPreemptionPolicy</code> gate,alpha);<code>GenericWorkload</code> 升為 beta(預設仍關)</td></tr>
         <tr><td>2026-09-08</td><td>KubeRay <code>0acedf89</code> · #5226 K8s 1.37 client-go / envtest</td><td>v1alpha2 實作整個改名換成 v1alpha3(檔案、kind config、CI pipeline 都換)</td></tr>
-        <tr><td>2026-10-18</td><td>KubeRay #5266(本 branch)<code>fbf13415</code>、<code>e50c4ba4</code></td><td>PriorityClass / preemptionPolicy 帶進 Workload &amp; PodGroup,並繞過 upstream bug</td></tr>
-        <tr><td>2026-10</td><td>upstream issue <a href="https://github.com/kubernetes/kubernetes/issues/143252">kubernetes#143252</a> / PR <a href="https://github.com/kubernetes/kubernetes/pull/143253">#143253</a>(OPEN)</td><td>在 #5266 review 中發現的 bug,由同一作者(@alimaazamat)往 upstream 修</td></tr>
+        <tr><td>2026-10-18</td><td>KubeRay <a href="https://github.com/kuberay-project/kuberay/pull/5422">#5422</a>(本 branch,@alimaazamat)<code>fbf13415</code>、<code>e50c4ba4</code></td><td>PriorityClass / preemptionPolicy 帶進 Workload &amp; PodGroup,並繞過 upstream bug</td></tr>
+        <tr><td>2026-10</td><td>upstream issue <a href="https://github.com/kubernetes/kubernetes/issues/143252">kubernetes#143252</a> / PR <a href="https://github.com/kubernetes/kubernetes/pull/143253">#143253</a>(OPEN)</td><td>在 @marosset 的 #5266(in-place gang resize)review 中發現的 bug,由 #5422 的作者 @alimaazamat 往 upstream 修</td></tr>
       </tbody>
     </table>
   </div>
@@ -152,7 +152,7 @@
   <h2>2. Upstream:WAS 是什麼</h2>
   <ul>
     <li><strong>Workload</strong>(<code>scheduling.k8s.io/v1alpha3</code>,namespaced):描述「這組工作要怎麼被排程」的<strong>模板</strong>。<code>spec.podGroupTemplates[]</code> 每個 template 有 <code>schedulingPolicy</code>(例如 <code>gang.minCount</code>),1.37 起還有 <code>priorityClassName</code> / <code>preemptionPolicy</code>。spec 幾乎不可變。</li>
-    <li><strong>PodGroup</strong>(KEP-5832,1.37 拆出):<strong>runtime</strong> 物件,透過 <code>spec.workloadRef</code> 指回某個 Workload 的 template。kube-scheduler 以它為單位做 gang 決策;帶 finalizer <code>scheduling.k8s.io/podgroup-protection</code>,只要還有 pod 引用就擋住刪除。</li>
+    <li><strong>PodGroup</strong>(KEP-5832;v1alpha2 / 1.36 就已是獨立物件):<strong>runtime</strong> 物件,透過 <code>spec.workloadRef</code> 指回某個 Workload 的 template。kube-scheduler 以它為單位做 gang 決策;帶 finalizer <code>scheduling.k8s.io/podgroup-protection</code>,只要還有 pod 引用就擋住刪除。</li>
     <li><strong>Pod</strong>:<code>spec.schedulingGroup.podGroupName</code> 指向 PodGroup(不可變)。scheduler 會等到 PodGroup 湊滿 <code>minCount</code> 才一次放行。</li>
     <li><strong>Priority</strong>:priority admission 會從 <code>priorityClassName</code> 算出 PodGroup 的 priority 與 preemptionPolicy;scheduler 要求 PodGroup 內每個 pod 的 priority 與 PodGroup 一致。</li>
   </ul>
@@ -180,7 +180,7 @@
   <h2>4. Operator 與 scheduler 怎麼分工</h2>
 
   <p class="q">這跟 operator 有關嗎?它歸在 batch-scheduler 底下。</p>
-  <p><strong>有關,它就是 operator 的程式碼。</strong><code>batchscheduler</code> 是 <code>ray-operator</code> 裡的 package,和 RayCluster controller 跑在同一個 process,不是另外部署的元件。開關是 operator 的啟動參數(<code>--feature-gates=KubernetesWAS=true</code>),權限用的是 operator 的 ServiceAccount — 所以 #5266 讀 PriorityClass 的 RBAC 加在 kuberay-operator Helm chart 的 ClusterRole 上。</p>
+  <p><strong>有關,它就是 operator 的程式碼。</strong><code>batchscheduler</code> 是 <code>ray-operator</code> 裡的 package,和 RayCluster controller 跑在同一個 process,不是另外部署的元件。開關是 operator 的啟動參數(<code>--feature-gates=KubernetesWAS=true</code>),權限用的是 operator 的 ServiceAccount — 所以 #5422 讀 PriorityClass 的 RBAC 加在 kuberay-operator Helm chart 的 ClusterRole 上。</p>
   <pre><code>ray-operator/                          ← kuberay-operator binary
 └── controllers/ray/
     ├── raycluster_controller.go       ← RayCluster reconciler
@@ -246,7 +246,7 @@
       </tbody>
     </table>
   </div>
-  <p>pod 建好後,kube-scheduler watch 到 Pending pod → <code>schedulerName</code> 是自己就接手 → 讀 <code>schedulingGroup</code> 找到 PodGroup → 依 <code>minCount</code> 做 all-or-nothing,依 priority / <code>preemptionPolicy</code> 決定是否搶佔。#5266 的效果就在這一步:operator 把 priority 寫進 PodGroup,scheduler 才能照它做 preemption。</p>
+  <p>pod 建好後,kube-scheduler watch 到 Pending pod → <code>schedulerName</code> 是自己就接手 → 讀 <code>schedulingGroup</code> 找到 PodGroup → 依 <code>minCount</code> 做 all-or-nothing,依 priority / <code>preemptionPolicy</code> 決定是否搶佔。#5422 的效果就在這一步:operator 把 priority 寫進 PodGroup,scheduler 才能照它做 preemption。</p>
 
   <h3>4.4 容易混淆的名詞</h3>
   <div class="tablewrap">
@@ -302,7 +302,7 @@
     <li><strong>priority 欄位不參與 stale 判斷</strong>:建立後就固定,要換 PriorityClass 得重建 RayCluster(本 branch 文件已註明)。</li>
   </ul>
 
-  <h2>8. 目前進行中:PriorityClass &amp; preemption(#5266)</h2>
+  <h2>8. 目前進行中:PriorityClass &amp; preemption(<a href="https://github.com/kuberay-project/kuberay/pull/5422">#5422</a>)</h2>
   <p><strong>要解的問題</strong>:原本 Workload/PodGroup 不帶任何 priority,(1) 與 pod 的 priority 不一致,違反 scheduler 的要求;(2) 使用者無法讓整個 gang 以 <code>Never</code> 等待資源,只能用預設 <code>PreemptLowerPriority</code> 去搶。</p>
   <p><strong>做法</strong>:</p>
   <ul>
@@ -311,6 +311,52 @@
     <li>附帶:Helm <code>priorityclass_role.yaml</code> 與 kustomize overlay 加 cluster-scoped PriorityClass <code>get/list/watch</code>;kind 設定加 <code>PodGroupPreemptionPolicy=true</code>;docs、unit、e2e。</li>
   </ul>
   <p>review 細節(gate 關閉時欄位被靜默 drop、globalDefault、gang 一致性驗證等)見 <a href="kuberay-was-priorityclass-preemption-notes.html">WAS PriorityClass &amp; PreemptionPolicy</a>。</p>
+
+  <h3>8.1 解法的完整流程</h3>
+  <p class="q">解法是 <code>buildSchedulingResources</code> 把 pc + policy 填進去、建起來就有了?重點是填入 PodGroup spec 的 policy 避免被 API defaulting 改寫?</p>
+  <p>大致對,兩處要修正:受 API defaulting 影響的只有 <code>preemptionPolicy</code>,<code>priorityClassName</code> 沒有這個風險;重點也不是「避免被改寫」,而是「<strong>不要留空</strong>」。</p>
+
+  <p><strong>① <code>buildSchedulingResources</code>:算出期望狀態</strong>(每次 reconcile 都跑,還沒送給 apiserver)</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>欄位</th><th>來源</th><th>寫到哪</th></tr></thead>
+      <tbody>
+        <tr><td><code>priorityClassName</code></td><td>head 的 <code>spec.priorityClassName</code></td><td>Workload template + PodGroup spec</td></tr>
+        <tr><td><code>preemptionPolicy</code></td><td>head 的 <code>spec.preemptionPolicy</code>,<strong>有寫才複製</strong>,否則 nil</td><td>同上</td></tr>
+        <tr><td><code>priority</code>(整數)</td><td>KubeRay 不填</td><td>由 Priority admission 依 class 填</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p><strong>② 誰呼叫 <code>syncWorkload</code> / <code>syncPodGroup</code></strong>:路徑固定,RayCluster controller <strong>每次 reconcile、建 pod 之前</strong>都會跑。</p>
+  <pre><code>RayClusterReconciler.reconcilePods
+  └─ raycluster_controller.go:993  scheduler.DoBatchSchedulingOnSubmission(rayCluster)
+       └─ syncSchedulingResources          (was_v1alpha3.go:114)
+            ├─ buildSchedulingResources    ← 算 desired
+            ├─ syncWorkload                ← 先
+            └─ syncPodGroup                ← 後</code></pre>
+  <p><code>resolvePreemptionPolicy</code> 只在「物件不存在、要 create」的分支執行;物件已存在時只檢查是否過期,不會再查 PriorityClass。</p>
+
+  <p><strong>③ 重點:送出 <code>Create(PodGroup)</code> 時,<code>preemptionPolicy</code> 不能是 nil</strong></p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>送出時的 <code>preemptionPolicy</code></th><th>API defaulting</th><th>Priority admission</th><th>結果</th></tr></thead>
+      <tbody>
+        <tr><td>nil(沒有 workaround)</td><td>補成 <code>PreemptLowerPriority</code></td><td>class 是 <code>Never</code> → 不一致</td><td>❌ Forbidden</td></tr>
+        <tr><td><code>Never</code>(<code>resolvePreemptionPolicy</code> 預先查 class 填好)</td><td>非 nil,<strong>不動</strong></td><td>class 是 <code>Never</code> → 一致</td><td>✅ 寫入 etcd</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li><strong>不是「避免被改寫」</strong>:defaulting 只補 nil,不改已有的值;admission 也不改寫,只比對、不一致就拒絕。workaround 是<strong>搶在 defaulting 之前填上正確的值</strong>。流程細節見 <a href="kuberay-k8s-apiserver-admission-notes.html">Apiserver Admission Flow</a>。</li>
+    <li><strong><code>priorityClassName</code> 沒有這個問題</strong>:它沒有 API defaulting。</li>
+    <li><strong>Workload 那邊其實不需要</strong>:Workload 沒有 preemptionPolicy defaulting,priority admission 也不處理 Workload;<code>syncWorkload</code> 裡的 lookup 只是讓兩邊值一致。</li>
+  </ul>
+  <p><strong>一句話:</strong>KubeRay 每次 reconcile 都算出 desired 物件;只有在 create PodGroup 那一刻,它才先查 PriorityClass 把 <code>preemptionPolicy</code> 明確填好,讓 apiserver 的 defaulting 沒機會補上和 class 衝突的 <code>PreemptLowerPriority</code>。</p>
+
+  <h3>8.2 邊界情況:<code>priorityClassName</code> 為空時直接 return</h3>
+  <p><code>resolvePreemptionPolicy</code> 開頭 <code>if preemptionPolicy != nil || priorityClassName == ""</code> 會跳過 lookup。通常沒事:沒 class 可查,而且 admission 在沒有 globalDefault class 時算出的也是 <code>PreemptLowerPriority</code>,與 defaulting 一致。</p>
+  <p>例外:名稱空白時 admission 會改用 <strong><code>globalDefault</code> PriorityClass</strong>(upstream <code>establishPriority</code> → <code>getDefaultPriority</code>)。若它是 <code>preemptionPolicy: Never</code>,同一個 bug 會讓 PodGroup 被拒。這種設定允許但罕見:default class 設 <code>Never</code> 只有在叢集刻意存在更低 priority 的 class 時才有作用。review 時以 nit 提出、請作者寫進 Limitations 即可。</p>
 
   <h2>9. Upstream bug 與修正</h2>
   <ol class="flow">
@@ -357,7 +403,7 @@
         <tr><td>部署</td><td>另外安裝 scheduler、PodGrouper、CRD(<code>scheduling.run.ai/v2</code> <code>Queue</code> 等)</td><td>不用裝;開 K8s feature gate 與 runtime-config</td></tr>
         <tr><td>成熟度</td><td>已有正式產品在用</td><td>1.37 <strong>alpha</strong> API,下一版很可能再改</td></tr>
         <tr><td>Queue 與配額</td><td><strong>階層式 Queue</strong>(範例 <code>team-a</code> 的 <code>parentQueue: department-1</code>),每種資源 quota / limit / <code>overQuotaWeight</code>,fair share 與 reclaim</td><td><strong>沒有 queue</strong>;配額只能靠 ResourceQuota 或另搭 Kueue</td></tr>
-        <tr><td>Preemption</td><td>依 queue 與 priority 決定 preempt / reclaim;priority 似乎以 PriorityClass 區分 train / build / inference 等用途</td><td>標準 PriorityClass;<code>PodGroupPreemptionPolicy</code> 支援 gang 層級 <code>Never</code>(#5266 在接這個)</td></tr>
+        <tr><td>Preemption</td><td>依 queue 與 priority 決定 preempt / reclaim;priority 似乎以 PriorityClass 區分 train / build / inference 等用途</td><td>標準 PriorityClass;<code>PodGroupPreemptionPolicy</code> 支援 gang 層級 <code>Never</code>(#5422 在接這個)</td></tr>
         <tr><td>GPU 特有功能</td><td>GPU sharing / fractional GPU(KubeRay 範例 <code>ray-cluster.kai-gpu-sharing.yaml</code>)、topology-aware</td><td>只有 gang all-or-nothing;1.37 有 TopologyAwareWorkloadScheduling gate,但 KubeRay 沒用</td></tr>
         <tr><td>gang 粒度</td><td>PodGrouper 依 owner 推算</td><td>KubeRay 明確定義:整個 RayCluster 一個 gang,<code>minCount = 1 + desired replicas</code></td></tr>
       </tbody>

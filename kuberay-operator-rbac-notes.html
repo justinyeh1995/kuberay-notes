@@ -121,7 +121,7 @@
 <main>
   <p class="eyebrow">KubeRay 部署 · RBAC</p>
   <h1>Operator RBAC:marker、Kustomize 與 Helm</h1>
-  <p class="meta">整理自 2026-10-22 的問答 · 起因:KubeRay #5266 同時改了 Helm chart 與 kustomize overlay 的 RBAC · 相關筆記:<a href="kuberay-was-integration-overview-notes.html">Kubernetes WAS Overview</a>、<a href="kuberay-was-priorityclass-preemption-notes.html">WAS PriorityClass &amp; PreemptionPolicy</a></p>
+  <p class="meta">整理自 2026-10-22 的問答 · 起因:KubeRay <a href="https://github.com/kuberay-project/kuberay/pull/5422">#5422</a> 同時改了 Helm chart 與 kustomize overlay 的 RBAC · 相關筆記:<a href="kuberay-was-integration-overview-notes.html">Kubernetes WAS Overview</a>、<a href="kuberay-was-priorityclass-preemption-notes.html">WAS PriorityClass &amp; PreemptionPolicy</a></p>
 
   <div class="verdict">
     <p><strong>重點:</strong>operator 對 API 的每個操作(包括 reconciler 的 GET)都以 <strong>kuberay-operator 的 ServiceAccount</strong> 身分執行,需要 RBAC 授權。權限有三種來源:</p>
@@ -170,7 +170,7 @@
   <p><code>controller-gen</code> 會把它產生進 base 的 <code>config/rbac/role.yaml</code>,<strong>每個安裝都拿到</strong>,不論有沒有開 WAS。marker 無法表達「只有開 feature gate 才給」。所以 WAS 的權限都放在有條件的位置:</p>
   <div class="tablewrap">
     <table>
-      <thead><tr><th></th><th>Workload / PodGroup</th><th>PriorityClass(#5266)</th></tr></thead>
+      <thead><tr><th></th><th>Workload / PodGroup</th><th>PriorityClass(#5422)</th></tr></thead>
       <tbody>
         <tr><td>Kustomize</td><td>WAS overlay 的 JSON patch,加到 ClusterRole <code>kuberay-operator</code> 的 <code>/rules/-</code></td><td>同一個 overlay 多一條 patch</td></tr>
         <tr><td>Helm</td><td><code>role.consistentRules</code> 的 <code>{{- if .kubernetesWASEnabled }}</code> 區塊(<code>_helpers.tpl:425</code>)</td><td><strong>獨立檔</strong> <code>templates/priorityclass_role.yaml</code>(見第 4 節)</td></tr>
@@ -179,7 +179,7 @@
   </div>
   <p>overlay 的註解寫明 "mirroring the Helm chart, which gates it on the KubernetesWAS feature gate",兩份同樣是手動同步。</p>
 
-  <h2>4. 案例:#5266 的 PriorityClass 權限</h2>
+  <h2>4. 案例:#5422 的 PriorityClass 權限</h2>
   <p class="q">Helm chart 跟 kustomize overlay 都有寫到 RBAC,是為啥?加上誰的權限?</p>
   <p><strong>兩邊加的是同一份權限:讓 kuberay-operator 的 ServiceAccount 能讀 PriorityClass。</strong></p>
   <ul>
@@ -214,7 +214,7 @@
         <tr><td><code>ray-operator/config/overlays/kubernetes-was-v1alpha3/kustomization.yaml</code></td><td>WAS 專屬 RBAC patch</td></tr>
         <tr><td><code>helm-chart/kuberay-operator/templates/_helpers.tpl:176</code></td><td>Helm 手寫的 <code>role.consistentRules</code></td></tr>
         <tr><td><code>helm-chart/kuberay-operator/templates/role.yaml</code>、<code>multiple_namespaces_role.yaml</code></td><td>引用 consistentRules 的 ClusterRole / Role</td></tr>
-        <tr><td><code>helm-chart/kuberay-operator/templates/priorityclass_role.yaml</code></td><td>#5266 新增的 PriorityClass ClusterRole + Binding</td></tr>
+        <tr><td><code>helm-chart/kuberay-operator/templates/priorityclass_role.yaml</code></td><td>#5422 新增的 PriorityClass ClusterRole + Binding</td></tr>
       </tbody>
     </table>
   </div>

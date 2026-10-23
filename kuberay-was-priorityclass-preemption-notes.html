@@ -121,7 +121,7 @@
 <main>
   <p class="eyebrow">KubeRay PR review · Kubernetes WAS(gang scheduling)</p>
   <h1>WAS PriorityClass &amp; PreemptionPolicy</h1>
-  <p class="meta">整理自 2026-10-21 ~ 10-22 的問答 · branch <code>kubernetes-was-priority-preemption</code>(base <code>9dc55272</code>)· 相關筆記:<a href="kuberay-was-integration-overview-notes.html">Kubernetes WAS Overview</a>(整體脈絡)、<a href="kuberay-k8s-priority-preemption-notes.html">Priority and Preemption</a>(概念)、<a href="kuberay-node-label-delivery-notes.html">Node Label Delivery</a>、<a href="kuberay-operator-rbac-notes.html">Operator RBAC</a>(Helm / Kustomize 權限)</p>
+  <p class="meta">整理自 2026-10-21 ~ 10-22 的問答 · PR <a href="https://github.com/kuberay-project/kuberay/pull/5422">kuberay#5422</a>(@alimaazamat)· branch <code>kubernetes-was-priority-preemption</code>(base <code>9dc55272</code>)· 相關筆記:<a href="kuberay-was-integration-overview-notes.html">Kubernetes WAS Overview</a>(整體脈絡)、<a href="kuberay-k8s-priority-preemption-notes.html">Priority and Preemption</a>(概念)、<a href="kuberay-node-label-delivery-notes.html">Node Label Delivery</a>、<a href="kuberay-operator-rbac-notes.html">Operator RBAC</a>(Helm / Kustomize 權限)、<a href="kuberay-k8s-gang-scheduling-notes.html">Gang Scheduling Mechanics</a>、<a href="kuberay-k8s-apiserver-admission-notes.html">Apiserver Admission Flow</a></p>
 
   <div class="verdict">
     <p><strong>一句話:</strong>這個 PR 讓 KubeRay 的 Kubernetes WAS(gang scheduling)把 RayCluster 的 <code>priorityClassName</code> / <code>preemptionPolicy</code> 複製到 Workload 與 PodGroup,讓整個 gang 可以用 <code>Never</code> 不搶佔。方向正確,但繞過 upstream bug 的方式只覆蓋了一半,而且有兩個會「卡住整個 RayCluster」的失敗路徑。</p>

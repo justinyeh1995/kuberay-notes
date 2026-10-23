@@ -121,7 +121,7 @@
 <main>
   <p class="eyebrow">Kubernetes 概念 · kube-apiserver</p>
   <h1>Apiserver 請求流程與 Admission</h1>
-  <p class="meta">整理於 2026-10-23 · 起因:WAS PodGroup <code>preemptionPolicy</code> 的 upstream bug(kubernetes#143252)· 相關筆記:<a href="kuberay-was-integration-overview-notes.html">Kubernetes WAS Overview</a>(第 9 節)、<a href="kuberay-k8s-priority-preemption-notes.html">Priority and Preemption</a>、<a href="kuberay-operator-rbac-notes.html">Operator RBAC</a></p>
+  <p class="meta">整理於 2026-10-23 · 起因:WAS PodGroup <code>preemptionPolicy</code> 的 upstream bug(kubernetes#143252)· 相關筆記:<a href="kuberay-was-integration-overview-notes.html">Kubernetes WAS Overview</a>(第 9 節)、<a href="kuberay-k8s-priority-preemption-notes.html">Priority and Preemption</a>、<a href="kuberay-operator-rbac-notes.html">Operator RBAC</a>、<a href="kuberay-k8s-gang-scheduling-notes.html">Gang Scheduling Mechanics</a></p>
 
   <div class="verdict">
     <p><strong>重點:</strong>對 kube-apiserver 的<strong>寫入</strong>請求(create / update / delete),不管來自 operator、kubectl 還是 controller-manager,在存進 etcd 之前都要經過一連串關卡。admission controller 是其中一段,能修改物件或直接拒絕請求。</p>

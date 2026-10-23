@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gang Scheduling Mechanics</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  .flow { list-style: none; padding: 0; margin: 12px 0 18px; max-width: none; counter-reset: step; }
+  .flow > li { position: relative; margin: 0 0 20px; display: grid; grid-template-columns: 1fr 220px; gap: 16px; align-items: start; }
+  .flow > li:not(:last-child)::after { content: ""; position: absolute; left: 32px; bottom: -20px; height: 20px; border-left: 1px solid var(--rule); }
+  .step { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 12px 16px; counter-increment: step; }
+  .step h4 { margin: 0 0 2px; font-size: 0.98rem; }
+  .step h4::before { content: counter(step) " · "; font-family: var(--font-mono); color: var(--muted); }
+  .step p { margin: 0; font-size: 0.88rem; color: var(--muted); }
+  .step.key { border: 2px solid var(--accent); background: var(--accent-soft); }
+  .step.key p { color: var(--ink); }
+  .side { font-size: 0.86rem; border-radius: 6px; padding: 10px 12px; background: var(--warn-soft); border-left: 3px solid var(--warn); }
+  .side strong { color: var(--warn); }
+
+  .sev { font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+  .sev.high { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn); }
+  .sev.med { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .sev.low { color: var(--muted); background: var(--code-bg); border: 1px solid var(--rule); }
+
+  @media (max-width: 600px) {
+    .flow > li { grid-template-columns: 1fr; gap: 8px; }
+  }
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Kubernetes 概念 · kube-scheduler</p>
+  <h1>Gang Scheduling 怎麼運作</h1>
+  <p class="meta">整理於 2026-10-23 · 來源:upstream <code>release-1.37</code> 的 <code>pkg/scheduler/framework/plugins/gangscheduling/gangscheduling.go</code> 與 KubeRay WAS plugin · 相關筆記:<a href="kuberay-was-integration-overview-notes.html">Kubernetes WAS Overview</a>、<a href="kuberay-k8s-priority-preemption-notes.html">Priority and Preemption</a>、<a href="kuberay-k8s-apiserver-admission-notes.html">Apiserver Admission Flow</a></p>
+
+  <div class="verdict">
+    <p><strong>重點:</strong>gang scheduling 是兩邊分工。KubeRay <strong>宣告</strong>「這組 pod 要一起排、至少幾個」;kube-scheduler 的 <code>GangScheduling</code> plugin <strong>執行</strong>「沒湊滿就誰都不放行」。</p>
+    <ul>
+      <li>關卡 1 <strong>PreEnqueue</strong>:人數不到 <code>minCount</code>,連排程都不開始。</li>
+      <li>關卡 2 <strong>Permit</strong>:排好了先預留不 bind,湊滿 <code>minCount</code> 才一起放行;5 分鐘湊不滿就退回重來。</li>
+      <li>KubeRay 把<strong>整個 RayCluster</strong>(head + 所有 worker group)當成一個 gang。</li>
+    </ul>
+  </div>
+
+  <h2>1. KubeRay 這邊:宣告這一組</h2>
+  <ol>
+    <li>建立 <strong>PodGroup</strong>,<code>gang.minCount = 1 + 所有 worker 的 desired replicas</code>(<code>buildClusterSchedulingPolicy</code>)。</li>
+    <li>在每個 pod 寫上 <code>schedulerName: default-scheduler</code> 與 <code>spec.schedulingGroup.podGroupName</code>,把 pod 掛到 PodGroup(<code>AddMetadataToChildResource</code>)。</li>
+    <li>叢集大小改變時,同步更新或重建 PodGroup,讓 <code>minCount</code> 跟著變。</li>
+  </ol>
+  <p>KubeRay 就做這三件事,「一起排」的邏輯全在 scheduler。</p>
+
+  <h2>2. kube-scheduler 這邊:兩道關卡</h2>
+  <p>一般 pod 是一個一個排、排到一個就 bind 一個。gang 的 pod 多了兩道關卡:</p>
+  <ol class="flow">
+    <li><div class="step"><h4>PreEnqueue:人數不夠先不排</h4><p>這組在佇列裡的 pod 數還沒到 <code>minCount</code>,pod 連排程都不會開始。KubeRay 還在一個個建 worker 時,scheduler 不會先把 head 排上去。</p></div>
+      <div class="side"><strong>狀態</strong><br><code>UnschedulableAndUnresolvable</code></div></li>
+    <li><div class="step"><h4>Filter / Score:照常找節點</h4><p>每個 pod 跟一般 pod 一樣挑節點。</p></div>
+      <div class="side"><strong>資源不夠時</strong><br>進入 preemption 判斷(見第 4 節)</div></li>
+    <li><div class="step key"><h4>Permit:排好了也先不 bind</h4><p>找到節點後先預留資源(assumed),停在 Permit 等。預留數達到 <code>minCount</code>,一次放行所有等待中的 pod、<strong>同時 bind</strong>。</p></div>
+      <div class="side"><strong>逾時</strong><br>5 分鐘湊不滿 → 退回、釋放預留資源、之後重試</div></li>
+    <li><div class="step"><h4>Bind</h4><p>整組 pod 一起被綁到節點上。</p></div>
+      <div class="side"><strong>結果</strong><br>all-or-nothing</div></li>
+  </ol>
+  <p class="cap">PreEnqueue</p>
+  <pre><code>if allPodsCount &lt; int(policy.Gang.MinCount) {
+    return fwk.NewStatus(fwk.UnschedulableAndUnresolvable,
+        "waiting for minCount pods from a gang to appear in scheduling queue")
+}</code></pre>
+  <p class="cap">Permit(<code>permitTimeoutDuration = 5 * time.Minute</code>)</p>
+  <pre><code>if scheduledPodsCount &lt; int(podGroup.Spec.SchedulingPolicy.Gang.MinCount) {
+    return fwk.NewStatus(fwk.Wait, "waiting for minCount pods from a gang to be scheduled"), permitTimeoutDuration
+}
+// quorum 達成:放行這個 pod,並通知同組所有在等的 pod
+waitingPod.Allow(Name)</code></pre>
+
+  <h3>2.1 什麼事件會讓被擋的 pod 重試</h3>
+  <p><code>EventsToRegister</code> 註冊的事件:</p>
+  <ul>
+    <li><strong>有新的 pod 加入</strong>:可能正好湊滿 <code>minCount</code>。</li>
+    <li><strong>PodGroup 的 <code>minCount</code> 變小</strong>:門檻降低,原本在等的 pod 可能就夠了。這和 @marosset 的 #5266(in-place gang resize)有關:縮小叢集時直接改 <code>minCount</code>,不必刪 PodGroup 重建。</li>
+    <li><strong>PodGroup 被建立</strong>:pod 先建好、PodGroup 後到的情況。</li>
+  </ul>
+  <div class="note">
+    <p><strong>未查證:</strong>1.37 是否另有「整組一起計算 placement」的機制(而不是逐 pod 排程再用 Permit 等待),沒有再往下查。本節描述的是 <code>GangScheduling</code> plugin 本身的行為。</p>
+  </div>
+
+  <h2>3. 為什麼 KubeRay 把所有 worker group 放進同一個 gang</h2>
+  <p>KubeRay 的設計是「一個 RayCluster 就是一個不可分割的工作單位」:head 加上所有 worker 湊齊才有用。gang scheduling 要防的是<strong>部分 pod 被排上、其餘卡住</strong>:</p>
+  <ul>
+    <li><strong>head 起來、worker 沒起來</strong>:Ray 叢集形式上存在,但工作要的 worker(例如 8 張 GPU)不夠,已起來的 pod 佔著節點和 GPU 卻沒在做事。</li>
+    <li><strong>多個 Ray 叢集各起一半</strong>:A、B 各拿一半 GPU,誰都湊不滿,互相卡住(deadlock)。</li>
+    <li><strong>切成多個 gang</strong>(例如 CPU 組、GPU 組各一個):CPU 組先排上、GPU 組還在等,又回到部分起來、白佔資源。</li>
+  </ul>
+  <p>程式碼的註解也寫明:</p>
+  <pre><code>// clusterPodGroupTemplateName is the name of the single PodGroupTemplate that
+// gang schedules the entire RayCluster (head + all worker groups) together.</code></pre>
+
+  <h3>3.1 其他排程器 plugin 也是一樣</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>plugin</th><th>gang 範圍</th></tr></thead>
+      <tbody>
+        <tr><td>Volcano</td><td><strong>一個</strong> PodGroup,<code>MinMember</code> 是整個叢集的 pod 數(<code>volcano_scheduler.go:70</code>);另用 subgroup policy 處理 multi-host group 內部</td></tr>
+        <tr><td>YuniKorn</td><td><code>MinMember: CalculateDesiredReplicas(app) + 1 // +1 for the head pod</code>(<code>yunikorn_task_groups.go:65</code>)</td></tr>
+        <tr><td>scheduler-plugins</td><td>整個叢集一個 PodGroup</td></tr>
+        <tr><td><strong>WAS</strong></td><td>一個 Workload template(<code>cluster</code>)、一個 PodGroup,涵蓋全部</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>WAS 第一次整合(#4962,<code>aac52c96</code>)的 commit 歷史裡有「Single gang scheduling w/ K8s v1alpha2 scheduling APIs」,代表討論後收斂成單一 gang。</p>
+
+  <h3>3.2 這個設計的代價</h3>
+  <ul>
+    <li><strong>所有 pod 必須同一個 priority</strong>:scheduler 以整組為單位排序與決定搶佔,所以 head 與每個 worker group 的 PriorityClass 都要一致。KubeRay 目前只讀 head 的值,worker 不一致時整組會一直 Pending。</li>
+    <li><strong>不支援 autoscaling</strong>:worker 數一變,<code>minCount</code> 就得跟著變;WAS 遇到 <code>enableInTreeAutoscaling: true</code> 直接放棄 gang。</li>
+    <li><strong>不能先用部分 worker 開跑</strong>:有些工作少幾個 worker 也能先跑,但單一 gang 不允許。</li>
+  </ul>
+  <p>上游 Workload 的 <code>podGroupTemplates[]</code> 其實可以定義多個 template(例如每個 worker group 一個 PodGroup)。KubeRay 只用一個,是設計選擇,不是 API 限制。改成每組一個,priority 只需「組內一致」,但又會回到部分起來、互相等待的風險。</p>
+
+  <h2>4. 跟 priority / preemption 的關係</h2>
+  <p>資源不夠、湊不滿 <code>minCount</code> 時,scheduler 要決定能不能搶別人的 pod 來騰空間,這時看 PodGroup 的 priority 與 <code>preemptionPolicy</code>:</p>
+  <ul>
+    <li><code>Never</code>:不搶,整組停在上面兩道關卡等待。</li>
+    <li><code>PreemptLowerPriority</code>:可以驅逐較低 priority 的 pod 來湊滿。</li>
+  </ul>
+  <p>這也是 PodGroup 的 priority 必須和 pod 一致的原因:scheduler 是以整組為單位做這個決定。詳見 <a href="kuberay-k8s-priority-preemption-notes.html">Priority and Preemption</a>。</p>
+</main>
+</body>
+</html>
