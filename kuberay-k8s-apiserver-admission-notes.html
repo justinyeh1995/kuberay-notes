@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apiserver Admission Flow</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  .flow { list-style: none; padding: 0; margin: 12px 0 18px; max-width: none; counter-reset: step; }
+  .flow > li { position: relative; margin: 0 0 20px; display: grid; grid-template-columns: 1fr 220px; gap: 16px; align-items: start; }
+  .flow > li:not(:last-child)::after { content: ""; position: absolute; left: 32px; bottom: -20px; height: 20px; border-left: 1px solid var(--rule); }
+  .step { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 12px 16px; counter-increment: step; }
+  .step h4 { margin: 0 0 2px; font-size: 0.98rem; }
+  .step h4::before { content: counter(step) " · "; font-family: var(--font-mono); color: var(--muted); }
+  .step p { margin: 0; font-size: 0.88rem; color: var(--muted); }
+  .step.key { border: 2px solid var(--accent); background: var(--accent-soft); }
+  .step.key p { color: var(--ink); }
+  .side { font-size: 0.86rem; border-radius: 6px; padding: 10px 12px; background: var(--warn-soft); border-left: 3px solid var(--warn); }
+  .side strong { color: var(--warn); }
+
+  .sev { font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+  .sev.high { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn); }
+  .sev.med { color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); }
+  .sev.low { color: var(--muted); background: var(--code-bg); border: 1px solid var(--rule); }
+
+  @media (max-width: 600px) {
+    .flow > li { grid-template-columns: 1fr; gap: 8px; }
+  }
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Kubernetes 概念 · kube-apiserver</p>
+  <h1>Apiserver 請求流程與 Admission</h1>
+  <p class="meta">整理於 2026-10-23 · 起因:WAS PodGroup <code>preemptionPolicy</code> 的 upstream bug(kubernetes#143252)· 相關筆記:<a href="kuberay-was-integration-overview-notes.html">Kubernetes WAS Overview</a>(第 9 節)、<a href="kuberay-k8s-priority-preemption-notes.html">Priority and Preemption</a>、<a href="kuberay-operator-rbac-notes.html">Operator RBAC</a></p>
+
+  <div class="verdict">
+    <p><strong>重點:</strong>對 kube-apiserver 的<strong>寫入</strong>請求(create / update / delete),不管來自 operator、kubectl 還是 controller-manager,在存進 etcd 之前都要經過一連串關卡。admission controller 是其中一段,能修改物件或直接拒絕請求。</p>
+    <ul>
+      <li>讀取請求(get / list / watch)<strong>不經過</strong> admission。</li>
+      <li>WAS 的 bug 就發生在 operator 送出 <code>Create(PodGroup)</code> 的這一趟:<strong>API defaulting</strong> 先補了值,<strong>Priority admission</strong> 再拒絕,PodGroup 根本進不了 etcd。</li>
+    </ul>
+  </div>
+
+  <h2>1. 一個寫入請求在 apiserver 裡的順序</h2>
+  <ol class="flow">
+    <li><div class="step"><h4>Authentication</h4><p>確認是誰發的,例如 KubeRay operator 的 ServiceAccount。</p></div>
+      <div class="side"><strong>失敗</strong><br>401 Unauthorized</div></li>
+    <li><div class="step"><h4>Authorization(RBAC)</h4><p>確認這個身分能不能對這個資源做這個動作,例如 <code>create podgroups</code>。</p></div>
+      <div class="side"><strong>失敗</strong><br>403 Forbidden;見 <a href="kuberay-operator-rbac-notes.html">Operator RBAC</a></div></li>
+    <li><div class="step key"><h4>Decode + API defaulting</h4><p>把 request body 轉成內部物件時,跑該型別的 <code>SetDefaults_*</code>,把沒填的欄位補上預設值。</p></div>
+      <div class="side"><strong>WAS bug 起點</strong><br><code>SetDefaults_PodGroup</code> 把 nil 的 preemptionPolicy 補成 <code>PreemptLowerPriority</code></div></li>
+    <li><div class="step key"><h4>Mutating admission</h4><p>可以修改物件,也可以拒絕。例如 Priority admission 依 <code>priorityClassName</code> 填上 <code>priority</code> 數值與 <code>preemptionPolicy</code>。</p></div>
+      <div class="side"><strong>WAS bug 在這裡被拒</strong><br>Priority 外掛的 <code>Admit()</code> 發現衝突 → Forbidden</div></li>
+    <li><div class="step"><h4>Registry strategy:PrepareForCreate / Validate</h4><p>資源自己的處理邏輯:例如 feature gate 關閉時把欄位 drop 掉(<code>dropDisabledPreemptionPolicyField</code>),再做欄位格式與宣告式驗證。</p></div>
+      <div class="side"><strong>失敗</strong><br>422 Invalid</div></li>
+    <li><div class="step"><h4>Validating admission</h4><p>只能檢查、不能修改,用來做跨物件或政策類的規則(包括 ValidatingAdmissionPolicy / webhook)。</p></div>
+      <div class="side"><strong>失敗</strong><br>通常 403 Forbidden</div></li>
+    <li><div class="step"><h4>寫入 etcd</h4><p>全部通過才會存進去;controller 與 scheduler 這時才 watch 得到這個物件。</p></div>
+      <div class="side"><strong>之後</strong><br>kube-scheduler 才看得到 PodGroup</div></li>
+  </ol>
+
+  <div class="note">
+    <p><strong>校正(對照 upstream 原始碼):</strong>原本的整理說「比對設定與 PriorityClass 是否衝突」發生在 validating admission。實際上 Priority 外掛(<code>plugin/pkg/admission/priority/admission.go</code>)對 PodGroup 的處理寫在 <code>Admit()</code>,也就是 <strong>mutating 階段</strong>:同一個函式先填值、遇到衝突就直接回 Forbidden。它的 <code>Validate()</code> 只處理 PriorityClass 本身的建立與更新。</p>
+    <p>另外,Priority 外掛只在 <strong>Create</strong> 時處理 PodGroup(Pod 則是 Create 與 Update)。這也是 PodGroup 建立後 priority 欄位就固定的原因之一。</p>
+  </div>
+
+  <h2>2. Mutating vs Validating admission</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th></th><th>Mutating</th><th>Validating</th></tr></thead>
+      <tbody>
+        <tr><td>能不能改物件</td><td>能</td><td>不能</td></tr>
+        <tr><td>能不能拒絕</td><td>能</td><td>能</td></tr>
+        <tr><td>執行順序</td><td>先(在 schema 驗證之前)</td><td>後(看到的是最終物件)</td></tr>
+        <tr><td>內建例子</td><td>Priority(<code>Admit</code>)、DefaultStorageClass、ServiceAccount</td><td>Priority(<code>Validate</code>,只管 PriorityClass)、ResourceQuota</td></tr>
+        <tr><td>自訂方式</td><td>MutatingWebhookConfiguration、MutatingAdmissionPolicy</td><td>ValidatingWebhookConfiguration、ValidatingAdmissionPolicy</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>同一個 admission 外掛可以同時實作兩種介面,Priority 就是。所以「某個外掛屬於 mutating 還是 validating」要看它的哪個方法處理哪種資源。</p>
+
+  <h2>3. 對應到 WAS 的 upstream bug</h2>
+  <p>overview 筆記第 9 節的 bug,完整發生在 operator 送出 <code>Create(PodGroup)</code> 的這一趟請求裡:</p>
+  <ol>
+    <li><strong>Operator 送出請求</strong>:KubeRay 用 client 建立 PodGroup,只帶 <code>priorityClassName</code>,<code>preemptionPolicy</code> 是 nil。</li>
+    <li><strong>API defaulting</strong>:<code>SetDefaults_PodGroup</code> 先把 <code>preemptionPolicy</code> 補成 <code>PreemptLowerPriority</code>。</li>
+    <li><strong>Priority admission(mutating)</strong>:從 PriorityClass 算出 <code>Never</code>,發現物件上已有不同的值 → 回 Forbidden。</li>
+    <li><strong>請求被拒絕</strong>:PodGroup 沒有寫進 etcd,kube-scheduler 也就看不到它,整個 gang 排不起來。</li>
+  </ol>
+  <p class="cap">apiserver 回的錯誤</p>
+  <pre><code>the string value of PreemptionPolicy (PreemptLowerPriority) must not be provided in
+pod group spec; priority admission controller computed Never from the given
+PriorityClass name</code></pre>
+  <ul>
+    <li><strong>Pod 為什麼沒事</strong>:Pod 的 <code>preemptionPolicy</code> 沒有 API defaulting,第 2 步什麼都不做,第 3 步直接從 class 填上。</li>
+    <li><strong>upstream 修法</strong>(#143253):拿掉第 2 步的 defaulting,讓 PodGroup 走跟 Pod 一樣的流程。</li>
+    <li><strong>KubeRay 的 workaround</strong>(<code>resolvePreemptionPolicy</code>):在第 1 步就把 <code>Never</code> 明確填好,第 2 步看到非 nil 就不動,第 3 步比對一致就通過。</li>
+  </ul>
+
+  <h2>4. 錯誤碼速查</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>看到的錯誤</th><th>多半卡在哪一關</th></tr></thead>
+      <tbody>
+        <tr><td>401 Unauthorized</td><td>Authentication:token 或憑證無效</td></tr>
+        <tr><td>403 Forbidden,訊息含 <code>cannot create resource ... in API group</code></td><td>Authorization:RBAC 沒授權</td></tr>
+        <tr><td>403 Forbidden,訊息提到某個 admission 外掛或政策</td><td>Admission(mutating 或 validating)拒絕,例如本例的 Priority</td></tr>
+        <tr><td>422 Invalid / Unprocessable Entity</td><td>Registry strategy 的欄位驗證</td></tr>
+        <tr><td>請求成功但欄位不見了</td><td>PrepareForCreate drop 掉欄位,例如 <code>PodGroupPreemptionPolicy</code> gate 沒開</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+</body>
+</html>
