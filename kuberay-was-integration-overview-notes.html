@@ -121,13 +121,13 @@
 <main>
   <p class="eyebrow">KubeRay 脈絡整理 · Kubernetes WAS(Workload-Aware Scheduling)</p>
   <h1>Kubernetes WAS × KubeRay 全貌</h1>
-  <p class="meta">整理於 2026-10-22 · branch <code>kubernetes-was-priority-preemption</code>(<code>e50c4ba4</code>)· 相關筆記:<a href="kuberay-was-priorityclass-preemption-notes.html">WAS PriorityClass &amp; PreemptionPolicy</a>(PR review 細節)、<a href="kuberay-operator-rbac-notes.html">Operator RBAC</a>(Helm / Kustomize 權限)、<a href="kuberay-k8s-gang-scheduling-notes.html">Gang Scheduling Mechanics</a>、<a href="kuberay-k8s-apiserver-admission-notes.html">Apiserver Admission Flow</a></p>
+  <p class="meta">整理於 2026-10-22(10-24 補 opt-in label、RayJob、label vs field)· branch <code>kubernetes-was-priority-preemption</code>(<code>e50c4ba4</code>)· 相關筆記:<a href="kuberay-was-priorityclass-preemption-notes.html">WAS PriorityClass &amp; PreemptionPolicy</a>(PR review 細節)、<a href="kuberay-operator-rbac-notes.html">Operator RBAC</a>(Helm / Kustomize 權限)、<a href="kuberay-k8s-gang-scheduling-notes.html">Gang Scheduling Mechanics</a>、<a href="kuberay-k8s-apiserver-admission-notes.html">Apiserver Admission Flow</a></p>
 
   <div class="verdict">
     <p><strong>一句話:</strong>Kubernetes 1.37 把 gang scheduling 做進 in-tree(<code>Workload</code> + <code>PodGroup</code> API + 預設 kube-scheduler)。KubeRay 用 batch scheduler plugin 的形式接上它:每個 RayCluster 對應 <strong>一個 Workload + 一個 PodGroup</strong>,head 與所有 worker 都是同一個 gang,pod 透過 <code>spec.schedulingGroup</code> 掛上去。</p>
     <ul>
       <li>不用裝 Volcano / YuniKorn,pod 仍由 <code>default-scheduler</code> 排程。</li>
-      <li>KubeRay 端以 feature gate <code>KubernetesWAS</code> 開啟,RayCluster 再以 label <code>ray.io/gang-scheduling-enabled: "true"</code> opt in。</li>
+      <li>KubeRay 端以 feature gate <code>KubernetesWAS</code> 開啟,RayCluster 再以 label <code>ray.io/gang-scheduling-enabled: "true"</code> opt in(值要是 <code>"true"</code>,不分大小寫;RayJob 加在自己的 metadata 上即可,會複製到它建的 RayCluster)。</li>
       <li>目前進行中的工作:把 PriorityClass / preemptionPolicy 帶進 gang(本 branch),以及 upstream 修正 PodGroup 預設值 bug(kubernetes#143253)。</li>
     </ul>
   </div>
@@ -264,7 +264,7 @@
   <ol class="flow">
     <li><div class="step"><h4>進 reconcilePods,先跑 DoBatchSchedulingOnSubmission</h4><p><code>raycluster_controller.go:993</code>:<strong>每次</strong> reconcile、在建立任何 pod 之前呼叫。回錯就整次 reconcile 中止並 requeue。</p></div>
       <div class="side"><strong>錯誤即重試</strong><br>WAS 大量用「回 error 等下一輪」來排序刪除/重建</div></li>
-    <li><div class="step"><h4>判斷要不要 gang</h4><p><code>was_v1alpha3.go:386</code> <code>schedulingSkipReason</code>:沒有 opt-in label,或 <code>enableInTreeAutoscaling: true</code> → 跳過,並呼叫 <code>CleanupOnCompletion</code> 把之前建的 Workload/PodGroup 刪掉。</p></div>
+    <li><div class="step"><h4>判斷要不要 gang</h4><p><code>was_v1alpha3.go:386</code> <code>schedulingSkipReason</code>:沒有 opt-in label,或 <code>enableInTreeAutoscaling: true</code> → 跳過,並呼叫 <code>CleanupOnCompletion</code> 把之前建的 Workload/PodGroup 刪掉。label 判斷是 <code>strings.EqualFold(labels[...], "true")</code>(<code>:388</code>):<code>"True"</code> 也算,<code>"false"</code> / 空字串 = 沒開。和 YuniKorn、scheduler-plugins 不同,那兩個只看 key 存不存在(<code>yunikorn_scheduler.go:112</code>、<code>scheduler_plugins.go:112</code>),寫 <code>"false"</code> 反而會開 gang。事後拿掉 label → 下一次 reconcile 走跳過路徑,清掉 Workload/PodGroup。</p></div>
       <div class="side"><strong>autoscaling 不支援</strong><br>minCount 會跟著 replicas 跳,目前直接放棄 gang</div></li>
     <li><div class="step key"><h4>sync Workload → sync PodGroup</h4><p><code>was_v1alpha3.go:114</code>:先 <code>buildSchedulingResources</code> 算出期望狀態,再依序 <code>syncWorkload</code>(:125)、<code>syncPodGroup</code>(:175)。不存在就 create;存在但過期就刪掉等下一輪重建(見第 7 節)。</p></div>
       <div class="side"><strong>PriorityClass lookup</strong><br>只發生在 create 分支(本 branch 新增)</div></li>
@@ -385,7 +385,7 @@
         <tr><td>plugin 做什麼</td><td>pod 寫上 <code>schedulerName: kai-scheduler</code>;把 RayCluster 的 <code>kai.scheduler/queue</code> label 複製到 pod</td><td>建 Workload + PodGroup、算 <code>minCount</code>、設 <code>schedulingGroup</code>、處理 finalizer、帶 priority</td></tr>
         <tr><td><code>AddToScheme</code> / <code>ConfigureReconciler</code></td><td>空的,不 watch 任何物件</td><td>註冊 v1alpha3 型別;<code>Owns(Workload)</code>、<code>Owns(PodGroup)</code></td></tr>
         <tr><td>何時套用 gang</td><td>所有 RayCluster;沒有 queue label 的 pod 會一直 Pending(只記 log)</td><td>需 <code>ray.io/gang-scheduling-enabled: "true"</code></td></tr>
-        <tr><td>RayJob</td><td><code>K8sJobMode</code> 直接回錯:submitter pod 在叢集 ready 後才建,進不了 gang</td><td>hook 只處理 RayCluster;RayJob → no-op</td></tr>
+        <tr><td>RayJob</td><td><code>K8sJobMode</code> 直接回錯:submitter pod 在叢集 ready 後才建,進不了 gang</td><td>hook 只處理 RayCluster;RayJob → no-op。但 RayJob 的 label 會複製到它建的 RayCluster(<code>rayjob_controller.go:1005-1006</code>),所以 label 加在 RayJob 上就會 gang</td></tr>
         <tr><td>Autoscaling</td><td>plugin 沒限制</td><td>直接跳過 gang</td></tr>
         <tr><td>程式碼量</td><td>約 80 行</td><td>約 430 行</td></tr>
       </tbody>
@@ -424,7 +424,7 @@
       <tbody>
         <tr><td>只綁 K8s 1.37 / v1alpha3</td><td>alpha API,下一版很可能再改;provider registry 已為多版本預留</td><td><span class="sev low">設計</span></td></tr>
         <tr><td>Autoscaling RayCluster</td><td>直接跳過 gang,照一般方式逐 pod 排程</td><td><span class="sev low">設計</span></td></tr>
-        <tr><td>RayJob</td><td>hook 只認 RayCluster;RayJob 建出來的 RayCluster 需自帶 opt-in label 才會 gang</td><td><span class="sev med">待確認</span></td></tr>
+        <tr><td>RayJob</td><td>已確認會 gang:<code>constructRayClusterForRayJob</code> 用 <code>maps.Copy</code> 把 RayJob 的所有 label 複製到 RayCluster(<code>rayjob_controller.go:1005-1006</code>),之後 RayCluster controller 照常呼叫 WAS hook。label 只看 RayJob 的 <code>metadata</code>,跟 <code>rayClusterSpec</code> 無關。submitter K8s Job pod 不屬於 RayCluster,推測不在 gang 內(<strong>未查證</strong>)</td><td><span class="sev low">已確認</span></td></tr>
         <tr><td>既有 pod 的 schedulingGroup</td><td>欄位不可變,對執行中的 RayCluster 加 label 不影響舊 pod,要重建才生效</td><td><span class="sev low">設計</span></td></tr>
         <tr><td>priority 只看 head</td><td>worker group 用不同 PriorityClass 時,operator 不檢查,等 scheduler 拒絕整個 gang</td><td><span class="sev high">review</span></td></tr>
         <tr><td><code>PodGroupPreemptionPolicy</code> gate 關閉</td><td>apiserver 靜默 drop 欄位,不回錯;使用者看不到任何提示</td><td><span class="sev high">review</span></td></tr>
@@ -432,6 +432,58 @@
         <tr><td>workaround 移除時機</td><td>建議在 <code>resolvePreemptionPolicy</code> 註解連到 kubernetes#143252</td><td><span class="sev med">review</span></td></tr>
       </tbody>
     </table>
+  </div>
+
+  <h2>12. 為什麼 opt-in 用 label 而不是新的 field?</h2>
+
+  <p class="q">為啥是加 label 而不是一個新的 field?</p>
+
+  <p><strong>結論:這個 label 不是 WAS 發明的,是沿用 2024-09 YuniKorn 整合留下的慣例;CRD 到現在都沒有對應 field(<code>ray-operator/apis</code> 裡沒有)。</strong></p>
+
+  <h3>12.1 歷史(有查證)</h3>
+  <ul>
+    <li>來源:<code>df5577fe1</code>(#2396,2024-09-27)Support gang scheduling with Apache YuniKorn。</li>
+    <li>原本提議叫 <code>yunikorn.apache.org/gang-scheduling</code>;@MortalHappiness 指出這個 label 只有 KubeRay 讀、YuniKorn 不讀,應該用 <code>ray.io/</code> 前綴 → 改成 <code>ray.io/gang-scheduling-enabled</code>。</li>
+    <li>@andrewsykim 問值是否必須是 <code>"true"</code>,作者回「存在就夠了」→ 這就是 YuniKorn(<code>yunikorn_scheduler.go:112</code>)與 scheduler-plugins(<code>scheduler_plugins.go:112</code>)只看 key 的由來。WAS 後來改成要求 <code>"true"</code>(<code>kubernetes_was_v1alpha3.go:388</code>),兩邊語意因此不一致。</li>
+    <li>討論焦點是 label 的命名與值,<strong>沒看到「為什麼不用 field」的討論</strong>。</li>
+  </ul>
+
+  <h3>12.2 為什麼 label 合理(推論,PR 沒寫)</h3>
+  <ul>
+    <li><strong>不用動 CRD API:</strong>加 field 等於改 <code>RayCluster</code> 的 <code>v1</code> API,要 API review、進相容性承諾,之後很難拿掉。label 是 metadata,適合 alpha 功能和還在演進的 integration。</li>
+    <li><strong>一個開關給所有 scheduler 共用:</strong>Volcano、YuniKorn、scheduler-plugins、WAS 都看同一個 label。做成 field 就得設計能涵蓋所有 scheduler 的 schema,而各家能力不同(queue、minResource、priority…)。</li>
+    <li><strong>和 batch scheduler 生態一致:</strong>那些 scheduler 本來就用 label / annotation 設定(<code>yunikorn.apache.org/queue</code>、<code>kai.scheduler/queue</code>)。</li>
+    <li><strong>RayJob 免費支援:</strong>RayJob 本來就把所有 label 複製到它建的 RayCluster(<code>rayjob_controller.go:1005-1006</code>);做成 field 的話 RayJob / RayService 都要各自加欄位並往下傳。</li>
+  </ul>
+
+  <h3>12.3 代價</h3>
+  <ul>
+    <li><strong>CRD 擋不到錯的值:</strong>CRD 的 OpenAPI schema 與 CEL(<code>x-kubernetes-validations</code>)對 <code>metadata</code> 只能看 <code>name</code> / <code>generateName</code>,碰不到 <code>labels</code>。目前 KubeRay 也沒有任何地方檢查這個 label 的值,寫成 <code>"ture"</code> 不會報錯,只會靜靜不生效。</li>
+    <li><strong>語意不一致:</strong>同一個 label,YuniKorn 看存在、WAS 看值,換 scheduler 時容易踩到。</li>
+    <li><strong>不好發現:</strong><code>kubectl explain</code> 查不到,要讀文件才知道。</li>
+  </ul>
+  <h3>12.4 那 label 要在哪裡驗證?</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>機制</th><th>能看 <code>metadata.labels</code>?</th><th>KubeRay 現況</th></tr></thead>
+      <tbody>
+        <tr><td>CRD OpenAPI schema / CRD CEL</td><td>❌ metadata 只能約束 name、generateName</td><td>—</td></tr>
+        <tr><td>Validating admission webhook</td><td>✅ <code>AdmissionReview</code> 帶完整物件</td><td><code>raycluster_webhook.go:49</code> 只檢查 name 與 worker group,沒看 labels</td></tr>
+        <tr><td>ValidatingAdmissionPolicy(in-tree CEL)</td><td>✅ <code>object.metadata.labels</code></td><td>KubeRay 沒提供</td></tr>
+        <tr><td>controller 在 reconcile 時驗證</td><td>✅</td><td><code>raycluster_controller.go:165-215</code>,每次 reconcile 都跑</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li><strong>webhook 預設沒有:</strong>只有環境變數 <code>ENABLE_WEBHOOKS == "true"</code> 才註冊(<code>ray-operator/main.go:379</code>)。Helm chart 裡沒有 <code>ValidatingWebhookConfiguration</code> 也沒設這個變數,所以 <strong>Helm 安裝一定沒有 webhook</strong>;只有 kustomize 的 <code>ray-operator/config/default-with-webhooks/</code> 會開,而且要另外裝 cert-manager。</li>
+    <li><strong>controller 驗證的行為:</strong>reconcile 一開始(<code>setDefaults</code> 之後)依序跑 <code>ValidateRayClusterMetadata</code>、<code>ValidateRayClusterSpec</code>、TLS / cert-manager、<code>ValidateRayClusterUpgradeOptions</code>、<code>ValidateRayClusterStatus</code>。不通過 → error log + <code>Warning</code> event + <code>return ctrl.Result{}, nil</code>:不 requeue、不建 pod、也不會走到 WAS hook,要等物件再被修改才會重跑。</li>
+    <li><strong>差別只在「什麼時候擋」:</strong>webhook 和 controller 呼叫的是同一組 <code>utils.Validate*</code>。webhook 在 admission 就拒絕;controller 版本是物件照樣寫進 etcd、<code>kubectl apply</code> 成功,但 operator 不動,使用者要看 <code>kubectl describe</code> 的 event 才知道原因。</li>
+    <li><strong>建議:</strong>如果要檢查 <code>ray.io/gang-scheduling-enabled</code> 的值,加在 controller 這層(例如 <code>ValidateRayClusterMetadata</code>)才對 Helm 使用者有效;只加在 webhook 大多數人碰不到。</li>
+  </ul>
+  <p>field 相對 label 的好處因此可以說得更精確:<strong>CRD 自己就能擋,不需要額外部署 webhook</strong>;label 不是驗證不了,而是要靠 webhook、ValidatingAdmissionPolicy 或 controller 另外寫。</p>
+
+  <div class="note">
+    <p>之後 gang scheduling 穩定下來,有可能升級成正式 field(例如 <code>spec.gangScheduling</code>),但目前<strong>沒查到相關 issue 或 KEP</strong>。</p>
   </div>
 
   <h2>附錄:關鍵位置速查</h2>

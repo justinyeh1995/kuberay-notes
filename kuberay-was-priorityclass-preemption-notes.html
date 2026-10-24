@@ -121,7 +121,7 @@
 <main>
   <p class="eyebrow">KubeRay PR review · Kubernetes WAS(gang scheduling)</p>
   <h1>WAS PriorityClass &amp; PreemptionPolicy</h1>
-  <p class="meta">整理自 2026-10-21 ~ 10-22 的問答 · PR <a href="https://github.com/kuberay-project/kuberay/pull/5422">kuberay#5422</a>(@alimaazamat)· branch <code>kubernetes-was-priority-preemption</code>(base <code>9dc55272</code>)· 相關筆記:<a href="kuberay-was-integration-overview-notes.html">Kubernetes WAS Overview</a>(整體脈絡)、<a href="kuberay-k8s-priority-preemption-notes.html">Priority and Preemption</a>(概念)、<a href="kuberay-node-label-delivery-notes.html">Node Label Delivery</a>、<a href="kuberay-operator-rbac-notes.html">Operator RBAC</a>(Helm / Kustomize 權限)、<a href="kuberay-k8s-gang-scheduling-notes.html">Gang Scheduling Mechanics</a>、<a href="kuberay-k8s-apiserver-admission-notes.html">Apiserver Admission Flow</a></p>
+  <p class="meta">整理自 2026-10-21 ~ 10-24 的問答 · PR <a href="https://github.com/kuberay-project/kuberay/pull/5422">kuberay#5422</a>(@alimaazamat)· branch <code>kubernetes-was-priority-preemption</code>(base <code>9dc55272</code>)· 相關筆記:<a href="kuberay-was-integration-overview-notes.html">Kubernetes WAS Overview</a>(整體脈絡)、<a href="kuberay-k8s-priority-preemption-notes.html">Priority and Preemption</a>(概念)、<a href="kuberay-node-label-delivery-notes.html">Node Label Delivery</a>、<a href="kuberay-operator-rbac-notes.html">Operator RBAC</a>(Helm / Kustomize 權限)、<a href="kuberay-k8s-gang-scheduling-notes.html">Gang Scheduling Mechanics</a>、<a href="kuberay-k8s-apiserver-admission-notes.html">Apiserver Admission Flow</a></p>
 
   <div class="verdict">
     <p><strong>一句話:</strong>這個 PR 讓 KubeRay 的 Kubernetes WAS(gang scheduling)把 RayCluster 的 <code>priorityClassName</code> / <code>preemptionPolicy</code> 複製到 Workload 與 PodGroup,讓整個 gang 可以用 <code>Never</code> 不搶佔。方向正確,但繞過 upstream bug 的方式只覆蓋了一半,而且有兩個會「卡住整個 RayCluster」的失敗路徑。</p>
@@ -326,6 +326,90 @@ preemptionPolicy = ptr.To(schedulingv1alpha3.PreemptionPolicy(*p)) // k8s.io/uti
   <pre><code>preemptionPolicy = (*schedulingv1alpha3.PreemptionPolicy)(p) // 能編譯,但不要這樣寫</code></pre>
   <div class="note">
     <p>這樣 Workload / PodGroup 的欄位會和 RayCluster spec <strong>共用同一塊記憶體</strong>。RayCluster 通常來自 controller-runtime 的 cache,共用指標可能在之後修改時改到 cache 裡的物件。PR 用 <code>new(T(*p))</code> 先解參考再複製,沒有這個問題;換成 <code>ptr.To</code> 也一樣安全,兩者只是風格差異。</p>
+  </div>
+
+  <h2>7. 這個功能跟 Ray autoscaler 的關係</h2>
+
+  <p class="q">這功能跟 autoscaler 的關係是什麼?</p>
+
+  <p><strong>結論:目前互斥,沒有交集。</strong>開了 Ray autoscaler 的 RayCluster 完全不進 WAS,所以這個 PR 的 priority / preemption 設定也碰不到它。</p>
+
+  <h3>7.1 程式碼怎麼寫</h3>
+  <ul>
+    <li><code>schedulingSkipReason</code>(<code>kubernetes_was_v1alpha3.go:386-397</code>):<code>enableInTreeAutoscaling: true</code> 就回傳 <code>"autoscaling is not yet supported"</code>,旁邊有 <code>TODO: support the Ray autoscaler with workload-aware scheduling.</code></li>
+    <li><code>DoBatchSchedulingOnSubmission</code>(<code>:55-68</code>):要跳過時不建 Workload / PodGroup,已存在的還會被 <code>CleanupOnCompletion</code> 刪掉。</li>
+    <li>文件:<code>docs/guidance/kubernetes-was.md:25</code>、<code>:133</code>、<code>:164</code> 都寫明 autoscaling cluster 不做 gang scheduling。</li>
+  </ul>
+
+  <h3>7.2 對這個 PR 的影響</h3>
+  <ul>
+    <li>autoscaling cluster 沒有 PodGroup → 不會呼叫 <code>resolvePreemptionPolicy</code>,也不會查 PriorityClass。</li>
+    <li>pod 本身仍帶 template 的 <code>priorityClassName</code>,照一般 Pod 的 priority / preemption 規則<strong>逐 pod</strong> 排程,只是不整組排。</li>
+  </ul>
+
+  <h3>7.3 為什麼現在不支援</h3>
+  <p>gang 大小是固定算的:<code>minCount = 1 + CalculateDesiredReplicas</code>(<code>:244</code>)。autoscaler 改 replicas → <code>minCount</code> 跟著變 → <code>syncPodGroup</code> 發現 <code>minCount</code> 不同就刪掉 PodGroup 重建(<code>:203</code>)。autoscaler 持續調整大小時 PodGroup 會反覆重建,所以目前直接排除。原地 resize gang 是 #5266 在處理的方向。</p>
+
+  <h3>7.4 將來整合時跟這個 PR 有關的點</h3>
+  <ul>
+    <li><strong><code>Never</code> 的 gang 擴容會變慢:</strong>autoscaler 擴出來的新 pod 資源不夠時只會排隊,不會搶其他 workload。這正是 <code>Never</code> 的目的,代價是擴容延遲。</li>
+    <li><strong>worker 必須和 PodGroup 的 priority / policy 一致</strong>(<code>:269</code> 的註解:kube-scheduler 要求一致)。目前只抄 head template,worker group class 跟 head 不同的問題(見第 5 節)會更明顯,整合 autoscaler 時更該處理。</li>
+  </ul>
+
+  <div class="note">
+    <p><strong>Ray autoscaler ≠ Cluster Autoscaler。</strong>上面講的都是 Ray autoscaler(調 worker pod 數)。node 層的 Cluster Autoscaler 跟這個 PR 沒有直接的程式碼關係;它能不能看懂 PodGroup、一次替整個 gang 加夠 node,<strong>未查證</strong>。</p>
+  </div>
+
+  <h2>8. <code>syncWorkload</code> 什麼時候跑?sync 在保護什麼?</h2>
+
+  <p class="q"><code>syncWorkload</code> 看起來在 reconcileRayCluster 跟 RayJob initializing 時會用到,所以每一次 reconcile 會用到的只有 RayCluster?sync 是為了確保使用者中途 patch、或其他東西改到 PriorityClass 跟 policy 嗎?</p>
+
+  <p><strong>結論:</strong>只有 RayCluster reconcile 會真的跑到 <code>syncWorkload</code>,而且不是每次都會走到。sync <strong>不是</strong>在防 priority / policy 被改:它只看 template 名稱和 <code>minCount</code>,priority 相關欄位完全沒有比對。</p>
+
+  <h3>8.1 兩個呼叫點</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>呼叫點</th><th>傳入</th><th>WAS 的結果</th></tr></thead>
+      <tbody>
+        <tr><td><code>raycluster_controller.go:993</code>(<code>reconcilePods</code> 內)</td><td><code>*RayCluster</code></td><td>→ <code>syncSchedulingResources</code> → <code>syncWorkload</code> + <code>syncPodGroup</code></td></tr>
+        <tr><td><code>rayjob_controller.go:201</code>(RayJob initializing)</td><td><code>*RayJob</code></td><td>開頭 <code>object.(*rayv1.RayCluster)</code> 型別斷言失敗就 <code>return nil</code>(<code>kubernetes_was_v1alpha3.go:56-59</code>),<strong>不會呼叫 <code>syncWorkload</code></strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>RayJob 呼叫這個 hook 是給 Volcano / YuniKorn 這類要在 RayJob 層建 PodGroup 的 scheduler 用的。WAS 只在 RayCluster 層處理;RayJob 建出來的 RayCluster 之後走自己的 reconcile,從 <code>:993</code> 進來。</p>
+
+  <h3>8.2 RayCluster reconcile 也不是每次都走到</h3>
+  <ul>
+    <li>reconcile 最前面的 validation 不通過(<code>:165-215</code>)→ 整個 reconcile 結束。</li>
+    <li>cluster 已 suspend(<code>:960</code>,<code>return nil // stop reconcilePods because the cluster is suspended</code>)→ suspend 期間 Workload / PodGroup 不同步,符合文件「suspend 時保留,resume 沿用」。</li>
+    <li>Recreate upgrade 刪除所有 pod 的那一輪(<code>:975</code> 附近 <code>return nil</code>)。</li>
+  </ul>
+
+  <h3>8.3 每次走到的成本</h3>
+  <ol>
+    <li><code>Get</code> 現有 Workload。controller 有 <code>Owns(Workload)</code>,推測讀的是 informer cache(<code>k.cli</code> 是否 cache-backed <strong>未確認</strong>)。</li>
+    <li><strong>找不到</strong> → 這時才呼叫 <code>resolvePreemptionPolicy</code> 查 PriorityClass,然後 Create。這就是 <code>e50c4ba4</code>「limit PriorityClass lookups to resource creation」的效果。</li>
+    <li><strong>找到且一致</strong>(<code>isWorkloadStale</code> = false)→ 直接 return,沒有寫入。</li>
+    <li><strong>找到但過期</strong> → 先刪 PodGroup,再刪 Workload,回 error 讓下一輪重建。</li>
+  </ol>
+  <p><code>syncPodGroup</code>(<code>:175</code>)同一套模式。穩定狀態下每次 reconcile 只有兩次 cache 讀取,沒有寫入,也不查 PriorityClass。</p>
+
+  <h3>8.4 sync 真正在處理什麼</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>情況</th><th>sync 的反應</th><th>位置</th></tr></thead>
+      <tbody>
+        <tr><td>Workload / PodGroup 不存在(第一次建立,或被人刪掉)</td><td>建立;這時才查 PriorityClass</td><td><code>:131</code>、<code>:181</code></td></tr>
+        <tr><td>叢集形狀變了(worker group、replicas → <code>minCount</code> 變)</td><td>刪掉重建(Workload 不可變,只能重建)</td><td><code>isWorkloadStale</code> <code>:398</code>;<code>syncPodGroup</code> <code>:203-213</code></td></tr>
+        <tr><td>同名物件不是自己 own 的</td><td>回 error,不跟別人搶</td><td><code>:145</code>、<code>:194</code></td></tr>
+        <tr><td>物件正在刪除</td><td>等刪完再重試</td><td><code>:148</code>、<code>:197</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>比對的只有:template 數量、template 名稱、<code>minCount</code>(Workload);<code>minCount</code>(PodGroup)。<strong><code>priorityClassName</code> / <code>preemptionPolicy</code> 不在比對範圍內。</strong></p>
+
+  <div class="note">
+    <p><strong>review 可以問的點:</strong>RayCluster 建好之後,如果改 head template 的 <code>priorityClassName</code> 或 <code>preemptionPolicy</code>,Workload / PodGroup <strong>不會</strong>被更新,會一直留著舊值。之後新建的 pod(例如 worker 被替換)帶的是新 priority,和 PodGroup 不一致,kube-scheduler 會拒絕(見第 5 節的一致性錯誤)。要不要把這兩個欄位加進 stale 判斷,或在文件寫明「建立後修改 priority 不支援」,值得問作者。PodGroup 的 spec 是否允許原地更新<strong>未查證</strong>;Workload 依程式碼註解是不可變的。</p>
   </div>
 
   <h2>附錄 A:上游行為速查(K8s 1.37)</h2>
