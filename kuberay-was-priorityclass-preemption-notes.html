@@ -128,7 +128,7 @@
     <ul>
       <li><strong>不需要</strong>加 validation rule 去檢查 K8s 1.37(已被 discovery 檢查涵蓋);<strong>但</strong><code>PodGroupPreemptionPolicy</code> gate 查不到 —— 因為 apiserver 是「靜默 drop 欄位」而不是回錯,static rule 無從判斷。</li>
       <li>真正的缺口是 <strong>runtime 偵測 + 警告</strong>,不是 admission 規則。</li>
-      <li>真正適合放 validation rule 的是 <strong>gang 一致性</strong>(head 與所有 worker group 的 priority 設定必須一致),operator 現在只抄 head 的值。</li>
+      <li>gang 一致性(head 與所有 worker group 的 priority 設定必須一致)operator 不檢查,只抄 head 的值;但文件已明確要求所有 group 用同一個 class,屬使用者設定錯誤,<strong>降為 very low</strong>,最多開 follow-up。</li>
     </ul>
   </div>
 
@@ -252,8 +252,8 @@ PriorityClass name</code></pre>
         </tr>
         <tr>
           <td>4</td>
-          <td><span class="sev med">Medium</span></td>
-          <td>只有 head 的 <code>priorityClassName</code> / <code>preemptionPolicy</code> 被複製到 PodGroup;worker group 不一致 → scheduler 拒絕整個 gang,錯誤訊息難懂。<strong>這才是真正適合放 validation rule 的地方</strong></td>
+          <td><span class="sev low">Very low</span></td>
+          <td>只有 head 的 <code>priorityClassName</code> / <code>preemptionPolicy</code> 被複製到 PodGroup;worker group 不一致 → scheduler 拒絕整個 gang,錯誤訊息難懂。文件(<code>kubernetes-was.md:109</code>、<code>:126</code>)已要求所有 pod 用同一個 class,屬使用者設定錯誤,不擋 PR</td>
           <td><code>kubernetes_was_v1alpha3.go:267-316</code><br><code>buildSchedulingResources</code></td>
         </tr>
         <tr>
@@ -272,7 +272,10 @@ PriorityClass name</code></pre>
     </table>
   </div>
 
-  <h2>5. #4 詳情:真正值得加 validation rule 的地方</h2>
+  <h2>5. #4 詳情:gang 一致性(降為 very low)</h2>
+  <div class="note">
+    <p><strong>降級理由(2026-10-30):</strong>這段文字從 <code>fbf13415</code> 就在文件裡:「assign it to <strong>all</strong> Ray pods (the head and every worker group)」、「All pods in the gang must use the <strong>same</strong> PriorityClass」。規則寫清楚了,刻意讓不同 group 用不同 priority 也不合理,所以算使用者設定錯誤。比較可能的情況是只設 head、忘了設 worker,即使如此也只值得開 follow-up issue(webhook / controller 加檢查),不擋這支 PR。下面保留原本的分析。</p>
+  </div>
   <p>operator 只把 <strong>head</strong> 的 priority 欄位複製到 Workload template / PodGroup:</p>
   <pre><code>priorityClassName := rayCluster.Spec.HeadGroupSpec.Template.Spec.PriorityClassName</code></pre>
   <p>但 kube-scheduler 要求 PodGroup 內<strong>所有</strong> pod 的 priority / preemptionPolicy 一致:</p>

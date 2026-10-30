@@ -428,7 +428,7 @@
         <tr><td>Autoscaling RayCluster</td><td>直接跳過 gang,照一般方式逐 pod 排程</td><td><span class="sev low">設計</span></td></tr>
         <tr><td>RayJob</td><td>已確認會 gang:<code>constructRayClusterForRayJob</code> 用 <code>maps.Copy</code> 把 RayJob 的所有 label 複製到 RayCluster(<code>rayjob_controller.go:1005-1006</code>),之後 RayCluster controller 照常呼叫 WAS hook。label 只看 RayJob 的 <code>metadata</code>,跟 <code>rayClusterSpec</code> 無關。submitter K8s Job pod 不屬於 RayCluster,推測不在 gang 內(<strong>未查證</strong>)</td><td><span class="sev low">已確認</span></td></tr>
         <tr><td>既有 pod 的 schedulingGroup</td><td>欄位不可變,對執行中的 RayCluster 加 label 不影響舊 pod,要重建才生效</td><td><span class="sev low">設計</span></td></tr>
-        <tr><td>priority 只看 head</td><td>worker group 用不同 PriorityClass 時,operator 不檢查,等 scheduler 拒絕整個 gang</td><td><span class="sev high">review</span></td></tr>
+        <tr><td>priority 只看 head</td><td>worker group 用不同 PriorityClass 時,operator 不檢查,等 scheduler 拒絕整個 gang。但文件已明確要求所有 group 用同一個 class,屬使用者設定錯誤;最多開 follow-up,不擋 PR</td><td><span class="sev low">very low</span></td></tr>
         <tr><td><code>PodGroupPreemptionPolicy</code> gate 關閉</td><td>apiserver 靜默 drop 欄位,不回錯;使用者看不到任何提示</td><td><span class="sev high">review</span></td></tr>
         <tr><td>Workload 端也做 PriorityClass lookup</td><td>非 bug 所需,需作者說明或在註解寫清楚</td><td><span class="sev med">review</span></td></tr>
         <tr><td>workaround 移除時機</td><td>已留 review nit:請作者在註解 / 文件寫明 bug 只在 v1.37(#143253 進 1.38、不 backport);可移除條件是最低支援 K8s ≥ 1.38</td><td><span class="sev med">review</span></td></tr>
