@@ -183,7 +183,7 @@ pod group spec; priority admission controller computed Never from the given
 PriorityClass name</code></pre>
   <ul>
     <li><strong>Pod 為什麼沒事</strong>:Pod 的 <code>preemptionPolicy</code> 沒有 API defaulting,第 2 步什麼都不做,第 3 步直接從 class 填上。</li>
-    <li><strong>upstream 修法</strong>(#143253):拿掉第 2 步的 defaulting,讓 PodGroup 走跟 Pod 一樣的流程。</li>
+    <li><strong>upstream 修法</strong>(#143253,merge 進 1.38;1.37 不 backport):拿掉第 2 步的 defaulting,讓 PodGroup 走跟 Pod 一樣的流程。</li>
     <li><strong>KubeRay 的 workaround</strong>(<code>resolvePreemptionPolicy</code>):在第 1 步就把 <code>Never</code> 明確填好,第 2 步看到非 nil 就不動,第 3 步比對一致就通過。</li>
   </ul>
 

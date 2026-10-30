@@ -128,7 +128,7 @@
     <ul>
       <li>不用裝 Volcano / YuniKorn,pod 仍由 <code>default-scheduler</code> 排程。</li>
       <li>KubeRay 端以 feature gate <code>KubernetesWAS</code> 開啟,RayCluster 再以 label <code>ray.io/gang-scheduling-enabled: "true"</code> opt in(值要是 <code>"true"</code>,不分大小寫;RayJob 加在自己的 metadata 上即可,會複製到它建的 RayCluster)。</li>
-      <li>目前進行中的工作:把 PriorityClass / preemptionPolicy 帶進 gang(本 branch),以及 upstream 修正 PodGroup 預設值 bug(kubernetes#143253)。</li>
+      <li>目前進行中的工作:把 PriorityClass / preemptionPolicy 帶進 gang(本 branch),以及 upstream 修正 PodGroup 預設值 bug(kubernetes#143253 已 merge 進 1.38,1.37 不 backport,所以 KubeRay 的 workaround 要保留)。</li>
     </ul>
   </div>
 
@@ -144,7 +144,9 @@
         <tr><td>K8s 1.37</td><td>upstream:<code>scheduling.k8s.io/v1alpha3</code></td><td><code>priorityClassName</code> 不再需要額外 gate;新增 <code>preemptionPolicy</code>(<code>PodGroupPreemptionPolicy</code> gate,alpha);<code>GenericWorkload</code> 升為 beta(預設仍關)</td></tr>
         <tr><td>2026-09-08</td><td>KubeRay <code>0acedf89</code> · #5226 K8s 1.37 client-go / envtest</td><td>v1alpha2 實作整個改名換成 v1alpha3(檔案、kind config、CI pipeline 都換)</td></tr>
         <tr><td>2026-10-18</td><td>KubeRay <a href="https://github.com/kuberay-project/kuberay/pull/5422">#5422</a>(本 branch,@alimaazamat)<code>fbf13415</code>、<code>e50c4ba4</code></td><td>PriorityClass / preemptionPolicy 帶進 Workload &amp; PodGroup,並繞過 upstream bug</td></tr>
-        <tr><td>2026-10</td><td>upstream issue <a href="https://github.com/kubernetes/kubernetes/issues/143252">kubernetes#143252</a> / PR <a href="https://github.com/kubernetes/kubernetes/pull/143253">#143253</a>(OPEN)</td><td>在 @marosset 的 #5266(in-place gang resize)review 中發現的 bug,由 #5422 的作者 @alimaazamat 往 upstream 修</td></tr>
+        <tr><td>2026-10</td><td>upstream issue <a href="https://github.com/kubernetes/kubernetes/issues/143252">kubernetes#143252</a> / PR <a href="https://github.com/kubernetes/kubernetes/pull/143253">#143253</a></td><td>在 @marosset 的 #5266(in-place gang resize)review 中發現的 bug,由 #5422 的作者 @alimaazamat 往 upstream 修</td></tr>
+        <tr><td>2026-10-27</td><td>upstream <a href="https://github.com/kubernetes/kubernetes/pull/143253">#143253</a> merge(milestone v1.38)</td><td>修正只會出現在 1.38 以後</td></tr>
+        <tr><td>2026-10-28</td><td>backport 請求 <a href="https://github.com/kubernetes/kubernetes/issues/143446">kubernetes#143446</a> 被關閉</td><td>@pacoxu:off-by-default alpha feature 的問題不符 cherry-pick 資格;@kannon92 同意後 close。1.37 會一直有這個 bug</td></tr>
       </tbody>
     </table>
   </div>
@@ -366,8 +368,8 @@
       <div class="side"><strong>結果</strong><br>引用 <code>Never</code> class 又沒寫 policy 的 PodGroup 一律建不起來</div></li>
   </ol>
   <ul>
-    <li><strong>upstream 修法</strong>(#143253,OPEN):移除 PodGroup(v1alpha3、v1beta1)與 CompositePodGroup(v1alpha3)的 preemptionPolicy defaulting,nil 留給 admission 依 PriorityClass 填,與 Pod 的流程一致;明確寫了衝突值仍會被拒。</li>
-    <li><strong>KubeRay 何時能拿掉 workaround</strong>:修正 merge 且 KubeRay 支援的最低 K8s 版本都包含它之後(1.37 若沒 backport 就拿不掉)。可移除:<code>resolvePreemptionPolicy</code> 與兩個呼叫點、PriorityClass RBAC、文件中 lookup 相關限制。<strong>要保留</strong>:<code>buildSchedulingResources</code> 複製 class / 明確 policy 的邏輯。</li>
+    <li><strong>upstream 修法</strong>(#143253,2026-10-27 merge,v1.38):移除 PodGroup(v1alpha3、v1beta1)與 CompositePodGroup(v1alpha3)的 preemptionPolicy defaulting,nil 留給 admission 依 PriorityClass 填,與 Pod 的流程一致;明確寫了衝突值仍會被拒。</li>
+    <li><strong>KubeRay 何時能拿掉 workaround</strong>:1.37 backport 已被拒(kubernetes#143446),所以要等 <strong>KubeRay 最低支援 K8s ≥ 1.38</strong>。這個條件看 K8s 版本不看 API 版本:1.37 也 serve v1beta1,將來就算改用 v1beta1,只要還支援 1.37 就仍需要。在 1.38 上留著也無害(明確填的 policy 與 class 一致,admission 照樣放行)。可移除:<code>resolvePreemptionPolicy</code> 與兩個呼叫點、PriorityClass RBAC、文件中 lookup 相關限制。<strong>要保留</strong>:<code>buildSchedulingResources</code> 複製 class / 明確 policy 的邏輯。</li>
     <li><strong>Workload 不受此 bug 影響</strong>:upstream master 的 Workload 沒有 preemptionPolicy defaulting,priority admission 也不處理 Workload。所以 <code>syncWorkload</code> 裡的 lookup 是為了與 PodGroup 一致,不是 workaround。</li>
   </ul>
 
@@ -429,7 +431,7 @@
         <tr><td>priority 只看 head</td><td>worker group 用不同 PriorityClass 時,operator 不檢查,等 scheduler 拒絕整個 gang</td><td><span class="sev high">review</span></td></tr>
         <tr><td><code>PodGroupPreemptionPolicy</code> gate 關閉</td><td>apiserver 靜默 drop 欄位,不回錯;使用者看不到任何提示</td><td><span class="sev high">review</span></td></tr>
         <tr><td>Workload 端也做 PriorityClass lookup</td><td>非 bug 所需,需作者說明或在註解寫清楚</td><td><span class="sev med">review</span></td></tr>
-        <tr><td>workaround 移除時機</td><td>建議在 <code>resolvePreemptionPolicy</code> 註解連到 kubernetes#143252</td><td><span class="sev med">review</span></td></tr>
+        <tr><td>workaround 移除時機</td><td>已留 review nit:請作者在註解 / 文件寫明 bug 只在 v1.37(#143253 進 1.38、不 backport);可移除條件是最低支援 K8s ≥ 1.38</td><td><span class="sev med">review</span></td></tr>
       </tbody>
     </table>
   </div>

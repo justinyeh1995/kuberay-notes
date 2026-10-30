@@ -213,7 +213,7 @@
   </div>
   <ul>
     <li><strong>Pod 沒有這個問題</strong>:Pod 的 <code>preemptionPolicy</code> 沒有 API defaulting,留空由 admission 從 PriorityClass 補上。PodGroup 加欄位時多做了一個 Pod 沒有的預設值。</li>
-    <li><strong>upstream 修正</strong>:<a href="https://github.com/kubernetes/kubernetes/issues/143252">kubernetes#143252</a> / <a href="https://github.com/kubernetes/kubernetes/pull/143253">#143253</a>(OPEN),拿掉 PodGroup / CompositePodGroup 的 preemptionPolicy defaulting,"matching the Pod admission flow"。</li>
+    <li><strong>upstream 修正</strong>:<a href="https://github.com/kubernetes/kubernetes/issues/143252">kubernetes#143252</a> / <a href="https://github.com/kubernetes/kubernetes/pull/143253">#143253</a>(2026-10-27 merge 進 v1.38;1.37 backport 被拒,見 <a href="https://github.com/kubernetes/kubernetes/issues/143446">#143446</a>),拿掉 PodGroup / CompositePodGroup 的 preemptionPolicy defaulting,"matching the Pod admission flow"。</li>
     <li><strong>KubeRay 的 workaround</strong>(<code>resolvePreemptionPolicy</code>):create 前自己讀 PriorityClass,把 policy 明確寫成 <code>Never</code>,落在表格第一列。</li>
   </ul>
   <p class="cap">建議把 KubeRay 那句容易誤讀的註解改成</p>
