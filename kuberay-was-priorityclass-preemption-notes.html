@@ -121,7 +121,7 @@
 <main>
   <p class="eyebrow">KubeRay PR review · Kubernetes WAS(gang scheduling)</p>
   <h1>WAS PriorityClass &amp; PreemptionPolicy</h1>
-  <p class="meta">整理自 2026-10-21 ~ 10-24 的問答 · PR <a href="https://github.com/kuberay-project/kuberay/pull/5422">kuberay#5422</a>(@alimaazamat)· branch <code>kubernetes-was-priority-preemption</code>(base <code>9dc55272</code>)· 相關筆記:<a href="kuberay-was-integration-overview-notes.html">Kubernetes WAS Overview</a>(整體脈絡)、<a href="kuberay-k8s-priority-preemption-notes.html">Priority and Preemption</a>(概念)、<a href="kuberay-node-label-delivery-notes.html">Node Label Delivery</a>、<a href="kuberay-operator-rbac-notes.html">Operator RBAC</a>(Helm / Kustomize 權限)、<a href="kuberay-k8s-gang-scheduling-notes.html">Gang Scheduling Mechanics</a>、<a href="kuberay-k8s-apiserver-admission-notes.html">Apiserver Admission Flow</a></p>
+  <p class="meta">整理自 2026-10-21 ~ 10-30 的問答 · PR <a href="https://github.com/kuberay-project/kuberay/pull/5422">kuberay#5422</a>(@alimaazamat)· branch <code>kubernetes-was-priority-preemption</code>(base <code>9dc55272</code>)· 相關筆記:<a href="kuberay-was-integration-overview-notes.html">Kubernetes WAS Overview</a>(整體脈絡)、<a href="kuberay-k8s-priority-preemption-notes.html">Priority and Preemption</a>(概念)、<a href="kuberay-node-label-delivery-notes.html">Node Label Delivery</a>、<a href="kuberay-operator-rbac-notes.html">Operator RBAC</a>(Helm / Kustomize 權限)、<a href="kuberay-k8s-gang-scheduling-notes.html">Gang Scheduling Mechanics</a>、<a href="kuberay-k8s-apiserver-admission-notes.html">Apiserver Admission Flow</a></p>
 
   <div class="verdict">
     <p><strong>一句話:</strong>這個 PR 讓 KubeRay 的 Kubernetes WAS(gang scheduling)把 RayCluster 的 <code>priorityClassName</code> / <code>preemptionPolicy</code> 複製到 Workload 與 PodGroup,讓整個 gang 可以用 <code>Never</code> 不搶佔。方向正確,但繞過 upstream bug 的方式只覆蓋了一半,而且有兩個會「卡住整個 RayCluster」的失敗路徑。</p>
@@ -443,6 +443,82 @@ preemptionPolicy = ptr.To(schedulingv1alpha3.PreemptionPolicy(*p)) // k8s.io/uti
   <div class="note">
     <p><strong>邊界情況(從程式碼推論,未測試):</strong>情況 2 重建時讀的是 PriorityClass「現在」的 policy。PriorityClass 的 <code>preemptionPolicy</code> 不能原地改,只能刪掉重建;如果期間有人把 class 換成不同 policy,重建出的 PodGroup 會是新值,而還在跑的舊 pod 是舊值。實際影響應該很小。</p>
   </div>
+
+  <h2>9. UT 與 e2e:測到什麼、沒測到什麼</h2>
+
+  <p class="q">他的 ut 跟 e2e 有什麼寫錯或沒測到的嗎?ut 已經涵蓋了,還需要 e2e 嗎?</p>
+
+  <p><strong>結論:</strong>unit test 很扎實;問題在 e2e:它在 template 上<strong>明確寫了</strong> <code>preemptionPolicy: Never</code>,所以沒走到 workaround(lookup)那條路徑。PR 要解的「class 是 <code>Never</code>、template 沒寫 policy」情境,只有 fake client 測過,沒在真實 apiserver 上驗證。建議當 non-blocking suggestion 提(PR head <code>b35300f1</code>;e2e 檔與本地 <code>e50c4ba4</code> 相同)。</p>
+
+  <h3>9.1 PodGroup <code>spec.preemptionPolicy</code> 和 PriorityClass 的關係</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>欄位</th><th>誰填</th></tr></thead>
+      <tbody>
+        <tr><td><code>priorityClassName</code></td><td>使用者 / KubeRay</td></tr>
+        <tr><td><code>priority</code>(整數)</td><td>priority admission 從 class 的 <code>value</code> 算出,不能自己指定</td></tr>
+        <tr><td><code>preemptionPolicy</code></td><td>可不填(admission 從 class 補);填了就必須和 class 一致</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p><code>admitPodGroup</code>(<code>plugin/pkg/admission/priority/admission.go</code>):找 class(空的就用 globalDefault,都沒有 priority = 0)→ 填 <code>priority</code> → policy 為 nil 就用 class 的補(class 沒設就是 <code>PreemptLowerPriority</code>);非 nil 且相同就放行;非 nil 但不同 → Forbidden。所以 <code>preemptionPolicy</code> 實際上是 class policy 的副本,不能拿來覆蓋 class,和 Pod 規則一樣。kube-scheduler 用 PodGroup 的這兩個值做 gang 搶佔決策,並要求所有 pod 與它一致。gate 關閉時欄位在 create 時被丟掉。(根據先前讀 upstream 程式碼整理,本次未重新對照。)</p>
+
+  <h3>9.2 workaround 是在 client 端、defaulting 之前就填好</h3>
+<pre><code>KubeRay operator(client 端)
+  resolvePreemptionPolicy:讀 PriorityClass → policy = Never
+  k.cli.Create(PodGroup{preemptionPolicy: Never})
+        │  HTTP POST
+        ▼
+kube-apiserver
+  ① decode + defaulting   SetDefaults_PodGroup:欄位非 nil → 不動
+  ② mutating admission    admitPodGroup:算 priority;policy 非 nil 且 == class → 放行
+  ③ validation
+  ④ 寫入 etcd</code></pre>
+  <ul>
+    <li><strong>沒有 workaround:</strong>請求裡是 nil → ① 補成 <code>PreemptLowerPriority</code> → ② 和 class 的 <code>Never</code> 不一致 → Forbidden。</li>
+    <li><strong>有 workaround:</strong>請求送出時已經是 <code>Never</code> → ① 只補 nil,不動 → ② 一致 → 放行。</li>
+    <li>workaround 沒改變 apiserver 的處理順序,只是讓 ① 沒東西可補。fake client 的 Create 只做 ④,這正是 unit test 測不到的部分。</li>
+  </ul>
+
+  <h3>9.3 各層覆蓋</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>測試</th><th>測到什麼</th></tr></thead>
+      <tbody>
+        <tr><td><code>TestResolvePreemptionPolicy</code>(table,<code>wantLookups</code>)</td><td>函式邏輯:兩個提前 return 條件;class 為 <code>Never</code> / <code>PreemptLowerPriority</code> / 未設時查一次並回對應值</td></tr>
+        <tr><td><code>TestSyncSchedulingResourcesLooksUpPriorityClassOnlyForCreation</code>(4 × 3 矩陣)</td><td>Workload / PodGroup 各自存不存在 × lookup 成功 / NotFound / Forbidden。「兩個都存在、class 查不到」→ <code>NoError</code> 且 <code>lookups == 0</code>(鎖住 <code>e50c4ba4</code> 的目的);失敗時 <code>IsNotFound</code> / <code>IsForbidden</code> 確認 <code>%w</code> 有包好、也沒建出物件;"create both" 成功時比對建出物件的 <code>Spec</code>(policy = <code>Never</code>)</td></tr>
+        <tr><td><code>TestBuildSchedulingResourcesCopiesPriorityFields</code></td><td>build 不查 class、不補 policy(見 Components and Test Layers 3.1)</td></tr>
+        <tr><td>Helm <code>tests/priorityclass_role_test.yaml</code></td><td>4 個 case,含 <code>singleNamespaceInstall</code> 仍是 ClusterRole</td></tr>
+        <tr><td>e2e(現況)</td><td>明確寫的 policy 被複製、真實 admission 接受。<strong>沒走 lookup</strong></td></tr>
+        <tr><td><strong>缺的</strong></td><td>lookup 填出的值能不能通過真實 1.37 apiserver 的 defaulting + admission</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>9.4 e2e 的問題</h3>
+  <ol>
+    <li><strong>沒測到 workaround 路徑</strong>(值得提):head、worker template 都 <code>.WithPreemptionPolicy(preemptNever)</code>,<code>resolvePreemptionPolicy</code> 開頭就 return。</li>
+    <li><strong>註解和行為不符:</strong>函式說明 "the priority admission controller then sets the PodGroup's preemptionPolicy"、斷言前 "populated the PodGroup's preemptionPolicy from the class"——實際上是 KubeRay 從 template 複製,admission 只比對。"A Never class also needs an explicit preemptionPolicy" 和 PR 目的矛盾(加 lookup 就是為了不用明確寫);這句在第一個 commit 就有。</li>
+    <li><strong>斷言偏少</strong>(low):只檢查 Workload template 的 <code>PriorityClassName</code>,沒檢查它的 <code>PreemptionPolicy</code>,也沒確認 pod 的 priority 和 PodGroup 一致。</li>
+  </ol>
+
+  <h3>9.5 還需要 e2e 嗎?</h3>
+  <ul>
+    <li><strong>不加也說得過去:</strong>e2e 唯一多驗證的是「apiserver 的假設」——defaulting 只補 nil(K8s 標準做法)、admission 只比對值(讀過程式碼),而且 1.37 不 backport,行為不會再變。</li>
+    <li><strong>但建議改現有 e2e:</strong>把兩個 template 的 <code>.WithPreemptionPolicy(preemptNever)</code> 拿掉就好,不多建 cluster、不增加 CI 時間。pod 沒有 defaulting,admission 會從 class 填成 <code>Never</code>,和 PodGroup 一致,gang 照樣排得上。這樣測的是使用者照文件設定時最常見的情境,註解也會自然變正確。</li>
+  </ul>
+<pre><code>suggestion (non-blocking): The e2e sets `preemptionPolicy: Never` explicitly on the templates, so it
+skips the PriorityClass lookup. Could we drop `WithPreemptionPolicy` so it exercises the workaround
+path against a real 1.37 apiserver? The comments about admission populating the policy would then
+also be accurate.</code></pre>
+  <p>作者若回 unit test 已足夠,也可以接受,不用堅持。</p>
+
+  <h3>9.6 unit test 的小 nit(可提可不提)</h3>
+  <ul>
+    <li><strong>stale 重建時會再查一次沒測到:</strong><code>minCount</code> 變 → 刪除 → 下一輪 <code>!found</code> → 重新 lookup(8.6 情況 2)。</li>
+    <li><strong><code>TestSyncPodGroupDeleteUsesUIDPreconditionAndDefersRecreation</code> 加的 <code>"missing-pc"</code> 沒有註解:</strong>用意應是證明刪除 stale 物件的路徑不 lookup(查了就會出錯,<code>Contains("deleted stale PodGroup")</code> 會失敗),但要讀懂整個 test 才看得出來。</li>
+    <li><strong><code>TestResolvePreemptionPolicy</code> 的 <code>"no class"</code> case</strong> 會往 tracker 放一個 <code>Name: ""</code> 的 PriorityClass,不影響結果但看起來怪;<code>className</code> 為空時可以不放。</li>
+  </ul>
 
   <h2>附錄 A:上游行為速查(K8s 1.37)</h2>
   <div class="tablewrap">
