@@ -113,7 +113,7 @@
 <main>
   <p class="eyebrow">Kubernetes / controller-runtime 基礎 · 延伸自 issue #5364</p>
   <h1>Components and Test Layers</h1>
-  <p class="meta">整理自 2026-10-07 的問答 · 相關筆記:<a href="kuberay-issue5364-worker-group-deadlock-notes.html">Worker Group Deadlock Notes</a> · <a href="kuberay-pod-create-vs-schedule-notes.html">Pod Create vs Schedule</a></p>
+  <p class="meta">整理自 2026-10-07 的問答(10-30 補 3.1 fake client builder)· 相關筆記:<a href="kuberay-issue5364-worker-group-deadlock-notes.html">Worker Group Deadlock Notes</a> · <a href="kuberay-pod-create-vs-schedule-notes.html">Pod Create vs Schedule</a></p>
 
   <div class="verdict">
     <p><strong>一句話:</strong>KubeRay operator 只跟 <strong>kube-apiserver</strong> 說話。unit test 的 <code>fakeClient</code> 取代的就是「透過 client 看到的 apiserver」,不是 controller manager;而且 unit test 連 KubeRay 自己的 Manager 都沒有,直接把 <code>reconcilePods</code> 當普通函式呼叫一次。</p>
@@ -309,6 +309,46 @@ workerSelector = labels.NewSelector().Add(*instanceReq).Add(*groupNameReq)
   <div class="note">
     <p><code>workerSelector</code> 這個名字容易讓人以為是「所有 worker」,其實只篩 <code>small-group</code> 一個 group。可以在斷言前補一句註解,例如 <code>// workerSelector selects small-group, which is group B.</code></p>
   </div>
+
+  <h3>3.1 fake client builder 的幾個方法(2026-10-30 補)</h3>
+  <p class="q"><code>WithObjects</code> 是啥?<code>WithScheme</code> 是讓 fakeClient 知道怎麼解析 resource?</p>
+  <p><code>clientFake.NewClientBuilder()...Build()</code> 建出的 client 不連 apiserver,背後是記憶體裡的 object tracker(可以想成假的 etcd)。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>方法</th><th>作用</th></tr></thead>
+      <tbody>
+        <tr><td><code>WithScheme(scheme)</code></td><td>認得哪些 Go 型別、對應哪個 GVK。「解析」大致對,精確說是<strong>型別註冊表</strong>:<code>Get(ctx, key, &amp;PriorityClass{})</code> 要先查出它是 <code>scheduling.k8s.io/v1, Kind=PriorityClass</code>,才知道去 tracker 哪一格找</td></tr>
+        <tr><td><code>WithObjects(objs...)</code></td><td><code>Build()</code> 前先把物件寫進 tracker,建好就 <code>Get</code> / <code>List</code> 得到。和 <code>WithRuntimeObjects</code> 效果一樣,差在參數型別(<code>client.Object</code> vs <code>runtime.Object</code>);同樣不經過 interceptor</td></tr>
+        <tr><td><code>WithInterceptorFuncs(...)</code></td><td>攔截 Get / Create 等呼叫,注入錯誤或計數(見第 4 節)</td></tr>
+        <tr><td><code>Build()</code></td><td>依上面設定建出 client</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p><strong>scheme 只決定「認不認得這種型別」,不代表裡面有這個物件。</strong>沒設 <code>WithScheme</code> 時用預設的 client-go scheme,內建型別(Pod、PriorityClass…)認得,CRD(RayCluster)不認得;未註冊的型別會回 <code>no kind is registered for the type ...</code>。</p>
+
+  <p><strong>案例:WAS 的 <code>TestBuildSchedulingResourcesCopiesPriorityFields</code>(#5422)</strong></p>
+<pre><code>fakeClient := clientFake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()  // 刻意沒有 WithObjects
+rayCluster.Spec.HeadGroupSpec.Template.Spec.PriorityClassName = "never-pc"
+
+// Class lookup is deferred until creation.
+workload, podGroup, err := scheduler.buildSchedulingResources(rayCluster)
+require.NoError(t, err)
+assert.Nil(t, podGroup.Spec.PreemptionPolicy)</code></pre>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>寫法</th><th><code>Get("never-pc")</code></th></tr></thead>
+      <tbody>
+        <tr><td><code>WithScheme(scheme).Build()</code></td><td>認得型別,tracker 是空的 → <strong>NotFound</strong></td></tr>
+        <tr><td><code>WithScheme(scheme).WithObjects(pc).Build()</code></td><td>拿得到 → 回 <code>Never</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li>head 引用了 <code>never-pc</code> 但 tracker 沒有它。只要 build 去查 class 就會 NotFound、test 失敗 → <code>NoError</code> 鎖住「build 不碰 API」;<code>Nil</code> 鎖住「build 不補 policy,留給建立時的 <code>resolvePreemptionPolicy</code>」。這是防 regression:有人把 lookup 搬回 build 就會紅。</li>
+    <li>第一個 commit <code>fbf13415</code> 的同一個 test 反過來:<code>WithObjects(priorityClass)</code> 放了 <code>Never</code> class,期待 build 查出 <code>Never</code>。<code>e50c4ba4</code> 把 lookup 搬走後才改成「不查」;推導 <code>Never</code> 改由 <code>TestResolvePreemptionPolicy</code> 測,它用 <code>WithInterceptorFuncs</code> 攔 Get 做 <code>lookups++</code>,斷言 <code>wantLookups</code>。</li>
+    <li>同檔其他 test 常見 <code>WithObjects(existingWorkload, existingPodGroup)</code>(例如 <code>:90</code>),是在模擬「物件已存在」,測 sync 的 found 分支、stale 重建、不是自己 own 的情況。</li>
+    <li>WAS 的 <code>newTestScheme</code>(<code>kubernetes_was_v1alpha3_test.go:982</code>)註冊 <code>corev1</code>、<code>rayv1</code>、<code>schedulingv1</code>(PriorityClass)、<code>schedulingv1alpha3</code>(Workload / PodGroup)。</li>
+  </ul>
 
   <h2>4. interceptor 回傳什麼錯誤、要斷言什麼</h2>
 
