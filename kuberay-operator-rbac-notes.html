@@ -179,13 +179,22 @@
   </div>
   <p>overlay 的註解寫明 "mirroring the Helm chart, which gates it on the KubernetesWAS feature gate",兩份同樣是手動同步。</p>
 
+  <div class="note">
+    <p><strong>常見誤解:「不用 marker 是因為 namespaced vs cluster scope」。</strong>其實是兩個不同層次的原因:</p>
+    <ul>
+      <li><strong>為什麼不用 marker、改寫在 Helm / Kustomize</strong> → 因為是<strong>選用功能</strong>。marker 產生的權限每個安裝都會拿到,沒辦法依 <code>KubernetesWAS</code> gate 開關。<code>workloads</code> / <code>podgroups</code> 是 namespaced 資源,一樣沒用 marker,就是證據。</li>
+      <li><strong>為什麼 Helm 裡 PriorityClass 還要獨立成一個 ClusterRole</strong> → 這才是 <strong>scope</strong> 問題。共用 rules 在 <code>singleNamespaceInstall</code> 下會變成 namespaced Role,授權不了 cluster-scoped 的 PriorityClass(見 4.1)。</li>
+    </ul>
+    <p>Kustomize 沒有第二個問題:WAS overlay 直接 patch 進 ClusterRole <code>kuberay-operator</code>,本來就是 cluster 層級。</p>
+  </div>
+
   <h2>4. 案例:#5422 的 PriorityClass 權限</h2>
   <p class="q">Helm chart 跟 kustomize overlay 都有寫到 RBAC,是為啥?加上誰的權限?</p>
   <p><strong>兩邊加的是同一份權限:讓 kuberay-operator 的 ServiceAccount 能讀 PriorityClass。</strong></p>
   <ul>
     <li><strong>為什麼要</strong>:<code>resolvePreemptionPolicy</code> 呼叫 <code>k.cli.Get(..., &amp;PriorityClass{})</code>,用的是 operator 的 client。沒有授權會回 403 Forbidden,PodGroup 建不起來。</li>
     <li><strong>只給讀取</strong>:<code>get</code> / <code>list</code> / <code>watch</code>。要 <code>list</code> / <code>watch</code> 是因為 controller-runtime 的 client 預設走 informer cache,讀一個物件也要能 list、watch 該型別。</li>
-    <li><strong>只在開 WAS 時給</strong>:Helm 要 <code>rbacEnable</code> 且 <code>KubernetesWAS</code> gate 開啟;Kustomize 只有用 WAS overlay 部署時。</li>
+    <li><strong>只在開 WAS 時給</strong>:Helm 要 <code>rbacEnable</code> 且 <code>KubernetesWAS</code> gate 開啟(判斷用既有的 helper <code>kuberay.kubernetesWASEnabled</code>,<code>_helpers.tpl:76</code>,掃 <code>.Values.featureGates</code>);Kustomize 只有用 WAS overlay 部署時,而這個 overlay 註解寫明是 "local dev / CI e2e only",base 的 <code>config/rbac/</code> 沒動。</li>
   </ul>
 
   <h3>4.1 Helm 為什麼要另外寫一個 ClusterRole</h3>
@@ -199,7 +208,7 @@
   <h3>4.2 review 時可以留意</h3>
   <ul>
     <li><strong>單一 namespace 安裝的權限範圍</strong>:開 WAS 後會多一個 cluster 層級的 ClusterRole。只能讀 PriorityClass,風險很低,但在單一 namespace 安裝下少見,release note 或文件最好提一句(PR 的 Limitations 寫了需要 cluster-scoped 權限,但沒特別點出 <code>singleNamespaceInstall</code>)。</li>
-    <li><strong>workaround 移除時</strong>:upstream(kubernetes#143252)修好、拿掉 <code>resolvePreemptionPolicy</code> 後,兩份 RBAC 也要一起刪,Helm 那份連同 <code>tests/priorityclass_role_test.yaml</code>。</li>
+    <li><strong>workaround 移除時</strong>:upstream 修正 kubernetes#143253 已 merge 進 <strong>1.38</strong>,但 1.37 backport 被拒(kubernetes#143446:off-by-default alpha 不符 cherry-pick 資格)。所以要等 KubeRay 最低支援 K8s ≥ 1.38 才能拿掉 <code>resolvePreemptionPolicy</code>,屆時兩份 RBAC 一起刪,Helm 那份連同 <code>tests/priorityclass_role_test.yaml</code>。</li>
   </ul>
 
   <h2>附錄:關鍵位置速查</h2>
