@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API Codegen Workflow</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">KubeRay 開發流程 · controller-gen / code-generator</p>
+  <h1>API Codegen Workflow</h1>
+  <p class="meta">整理自 2026-11-02 的問答 · 對照 KubeRay repo 驗證 · 相關筆記:<a href="kuberay-k8s-crd-installation-notes.html">CRD Installation</a> · <a href="kuberay-operator-rbac-notes.html">Operator RBAC</a></p>
+
+  <div class="verdict">
+    <p><strong>一句話:</strong>改了 <code>ray-operator/apis/ray/v1/*_types.go</code>,就跑 <code>make generate</code> + <code>make sync</code>(最精簡是 <code>make generate helm</code>)。</p>
+    <ul>
+      <li><code>make sync</code> <strong>不產生 DeepCopy</strong>;<code>make generate</code> <strong>不同步 Helm CRD</strong>。兩個都要。</li>
+      <li>Helm chart 裡的 RBAC template 沒有任何 make target 會產生,要手動跟 <code>config/rbac</code> 對齊。</li>
+    </ul>
+  </div>
+
+  <h2>1. Makefile target 各做什麼</h2>
+  <p class="cap">ray-operator/Makefile</p>
+<pre><code>manifests: controller-gen
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=kuberay-operator webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+
+generate: manifests api-docs controller-gen
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	./hack/update-codegen.sh
+
+helm: manifests
+	rm -r ../helm-chart/kuberay-operator/crds/
+	cp -r config/crd/bases/ ../helm-chart/kuberay-operator/crds/
+
+sync: helm api-docs
+	./hack/update-codegen.sh</code></pre>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th></th><th>CRD + RBAC<br>(manifests)</th><th>DeepCopy</th><th>clientset +<br>ApplyConfig</th><th>api-docs</th><th>Helm CRD</th></tr></thead>
+      <tbody>
+        <tr><td><code>make manifests</code></td><td>✓</td><td></td><td></td><td></td><td></td></tr>
+        <tr><td><code>make generate</code></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✗</td></tr>
+        <tr><td><code>make helm</code></td><td>✓</td><td></td><td></td><td></td><td>✓</td></tr>
+        <tr><td><code>make sync</code></td><td>✓</td><td>✗</td><td>✓</td><td>✓</td><td>✓</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li><code>manifests</code>:controller-gen 讀 kubebuilder marker,產生 <code>config/crd/bases/*.yaml</code>、<code>config/rbac</code>、webhook 設定。<code>make deploy</code> 和 envtest 讀這裡。</li>
+    <li><code>helm</code>:把 <code>config/crd/bases/</code> 整份複製到 <code>helm-chart/kuberay-operator/crds/</code>,<code>helm install</code> 讀這裡。漏跑的話 Helm 使用者送的新欄位會被 apiserver pruning 掉。</li>
+    <li><code>api-docs</code>:crd-ref-docs 產生 <code>docs/reference/api.md</code>。</li>
+    <li><code>hack/update-codegen.sh</code>:k8s code-generator,產生 <code>pkg/client</code> 底下的 clientset、informer、lister、ApplyConfiguration。</li>
+  </ul>
+  <div class="note">
+    <p><code>ray-operator/DEVELOPMENT.md</code> 的 Consistency check 一節只寫 <code>make sync</code>,沒提 DeepCopy。新增 struct 或 pointer 欄位時,<code>zz_generated.deepcopy.go</code> 只有 <code>make generate</code> 會更新。</p>
+  </div>
+
+  <h2>2. CI 檢查什麼</h2>
+  <p><code>.github/workflows/consistency-check.yaml</code>:</p>
+  <ul>
+    <li><code>hack/verify-codegen.sh</code>、<code>hack/verify-generated-files.sh</code>:<code>pkg/client</code> 與 generated files</li>
+    <li><code>hack/verify-api-docs.sh</code>:<code>docs/reference/api.md</code></li>
+    <li>跑 <code>make manifests</code> 後看有沒有 diff:失敗訊息「Please run "make manifests" to synchronize CRD and RBAC!」</li>
+    <li>比對兩份 CRD:失敗訊息「Please run "make sync" to synchronize CRDs!」</li>
+    <li><code>scripts/rbac-check.py</code>:kubebuilder marker 與 <code>config/rbac</code></li>
+  </ul>
+  <p class="q">哪些要手動同步?</p>
+  <p>DEVELOPMENT.md 第 6、7 點:</p>
+  <ul>
+    <li><code>helm-chart/kuberay-operator/templates</code> 的 RBAC 要手動跟 <code>config/rbac</code> 對齊。</li>
+    <li><code>multiple_namespaces_role.yaml</code> / <code>multiple_namespaces_rolebinding.yaml</code> 要跟 <code>role.yaml</code> / <code>rolebinding.yaml</code> 對齊(差別只在 namespaced vs cluster-scoped)。</li>
+  </ul>
+  <p>例:WAS PriorityClass PR 新增的 <code>templates/priorityclass_role.yaml</code> 就屬於這類,make 不會幫你檢查。</p>
+
+  <h2>3. DeepCopy:完整複製,不共用底層資料</h2>
+  <p>Go 的 struct 賦值是淺拷貝,裡面的 pointer、slice、map 仍指向同一份資料:</p>
+<pre><code>b := a              // a.Spec.WorkerGroupSpecs 這個 slice 兩邊共用
+b.Spec.WorkerGroupSpecs[0].Replicas = ptr(5)   // a 也被改到</code></pre>
+  <p>controller-gen 產生的 <code>zz_generated.deepcopy.go</code> 為每個型別加上 <code>DeepCopy()</code>、<code>DeepCopyInto()</code>、<code>DeepCopyObject()</code>。</p>
+  <ul>
+    <li><strong><code>runtime.Object</code> 介面要求:</strong>所有 API 物件都要有 <code>DeepCopyObject()</code> 才能註冊進 scheme。新增欄位卻沒重新產生,通常還能編譯,但複製時會<strong>安靜地漏掉</strong>新欄位;新增頂層型別則會編譯失敗。</li>
+    <li><strong>不能直接改 informer cache 的物件:</strong>cache 裡的物件被所有 reconcile 共用,要改先 DeepCopy。</li>
+    <li><strong>保留修改前的版本以便比對:</strong></li>
+  </ul>
+  <p class="cap">ray-operator/controllers/ray/rayservice_controller.go:119</p>
+<pre><code>originalRayServiceInstance := rayServiceInstance.DeepCopy()</code></pre>
+  <p>reconcile 過程改 <code>rayServiceInstance</code>,最後跟 original 比較,有變化才更新 status。若是淺拷貝,original 會一起被改,永遠判斷成「沒變」。</p>
+
+  <h2>4. clientset:有型別的 Ray CR client</h2>
+  <p><code>hack/update-codegen.sh</code> 產生 <code>pkg/client/clientset</code>,用法跟 client-go 的 <code>kubernetes.Clientset</code> 一樣:</p>
+<pre><code>cs.RayV1().RayClusters("default").Get(ctx, "my-cluster", metav1.GetOptions{})
+cs.RayV1().RayJobs(ns).Create(ctx, job, metav1.CreateOptions{})</code></pre>
+  <p>同一套產生器也產生 informer、lister(<code>pkg/client/informers/...</code>)。</p>
+  <p class="q">operator 自己用嗎?</p>
+  <p>不太用。operator 用 controller-runtime 的通用 <code>client.Client</code>。真正的使用者是:</p>
+  <ul>
+    <li><code>kubectl-plugin</code>(<code>kubectl ray create / job / scale</code>)</li>
+    <li><code>apiserver</code>、<code>apiserversdk</code></li>
+    <li>外部使用者自己寫的 Go 程式</li>
+    <li>operator 的 unit test 用它的 <code>scheme</code> 套件註冊 Ray 型別(例:<code>rayjob_controller_unit_test.go:34</code>)</li>
+  </ul>
+
+  <h2>5. ApplyConfiguration:Server-Side Apply 用的 builder</h2>
+  <p><strong>問題:</strong>Server-Side Apply(SSA)的語意是「只宣告我在乎的欄位」,apiserver 用 <code>managedFields</code> 記錄每個欄位由誰管理。直接序列化 <code>rayv1.RayCluster</code> struct,沒填的欄位會變成零值(<code>0</code>、<code>""</code>、<code>false</code>)送出,apiserver 分不出「我要設成 0」還是「我不管」,結果搶走別人管理的欄位。</p>
+  <p><strong>解法:</strong>ApplyConfiguration 的欄位全是 pointer,搭配 <code>WithXxx()</code> builder,沒呼叫到的就是 <code>nil</code>,不會送出:</p>
+  <p class="cap">ray-operator/test/e2erayjob/rayjob_recovery_test.go:31</p>
+<pre><code>rayJobAC := rayv1ac.RayJob("counter", namespace.Name).
+    WithSpec(rayv1ac.RayJobSpec().
+        WithRayClusterSpec(...))
+
+cs.RayV1().RayJobs(ns).Apply(ctx, rayJobAC, metav1.ApplyOptions{FieldManager: "e2e"})</code></pre>
+  <p>KubeRay 裡主要用在 e2e test(<code>ray-operator/test/...</code>),以及給想用 SSA 的外部使用者。</p>
+
+  <h2>6. 總結</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>產物</th><th>誰需要</th><th>漏產生的後果</th></tr></thead>
+      <tbody>
+        <tr><td>DeepCopy</td><td>operator 自己、scheme 註冊</td><td>新欄位不被複製(安靜的 bug),或編譯失敗</td></tr>
+        <tr><td>clientset / informer / lister</td><td>kubectl-plugin、apiserver、外部 Go 使用者</td><td>外部 SDK 看不到新欄位;CI <code>verify-codegen</code> 失敗</td></tr>
+        <tr><td>ApplyConfiguration</td><td>e2e test、SSA 使用者</td><td>沒有 <code>WithNewField()</code>;CI <code>verify-codegen</code> 失敗</td></tr>
+        <tr><td>Helm CRD</td><td><code>helm install</code> 的使用者</td><td>新欄位被 pruning;CI CRD 比對失敗</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+</body>
+</html>
