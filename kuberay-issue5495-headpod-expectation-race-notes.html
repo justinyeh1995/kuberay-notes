@@ -220,6 +220,22 @@
 
   <h2>6. 修法,以及為什麼調換順序就夠</h2>
   <p>把 head 的 <code>List</code> 移到 <code>IsSatisfied</code> 通過之後。batch scheduler 那段保持在 head reconcile 之前。</p>
+  <p><code>List</code> 要放進 satisfied 分支<strong>裡面</strong>,不只是往下移幾行。沒滿足時本來就要跳過 head,清單用不到,不必多讀一次 cache。改完之後跟 worker 路徑同一個結構:</p>
+<pre><code>// Reconcile head Pod
+if !r.rayClusterScaleExpectation.IsSatisfied(ctx, instance.Namespace, instance.Name, expectations.HeadGroup) {
+    logger.Info("reconcilePods", "Expectation", "NotSatisfiedHeadExpectations, reconcile head later")
+} else {
+    headPods := corev1.PodList{}
+    if err := r.List(ctx, &amp;headPods, common.RayClusterHeadPodsAssociationOptions(instance).ToListOptions()...); err != nil {
+        return err
+    }
+    switch {
+    case len(headPods.Items) == 1: ...
+    case len(headPods.Items) == 0: ... // create
+    default: ...                        // &gt;1, error
+    }
+}</code></pre>
+  <p><code>DoBatchSchedulingOnSubmission</code>(L1046-1054)跟 head 清單無關,留在原位,行為不變。</p>
   <p class="q">為什麼先檢查再 List 就保證看得到 head A?</p>
   <p><code>Get</code> 和 <code>List</code> 讀的是<strong>同一個 informer store</strong>。只要 <code>Get</code> 看到了 head A,後面的 <code>List</code> 一定也看得到,除非它真的被刪了。如果 expectation 還沒滿足,就跳過 head,根本不會用到清單。</p>
   <p class="q">還有沒有漏洞?</p>
@@ -245,7 +261,70 @@
     </table>
   </div>
 
-  <h2>8. 待辦</h2>
+  <h2>8. IsSatisfied 逐步拆解</h2>
+  <p><code>IsSatisfied</code> 回答的是「這個 group 之前記下的 Pod 建立/刪除,informer cache 是不是都看得到了」。它讀的是 cache,不是 API Server。</p>
+  <h3>帳本:itemsCache</h3>
+  <p>controller 每次建立或刪除 Pod 成功,就呼叫 <code>ExpectScalePod</code> 記一筆(<code>scale_expectations.go:56</code>),內容是 <code>name</code>、<code>namespace</code>、<code>group</code>、<code>rayCluster</code>、<code>action</code>(Create / Delete)和 <code>recordTimestamp</code>。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>鍵</th><th>格式</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td>主鍵 <code>Key()</code></td><td><code>ns/podName</code></td><td>一個 Pod 只會有一筆紀錄</td></tr>
+        <tr><td><code>GroupIndex</code></td><td><code>ns/cluster/group</code></td><td><code>IsSatisfied</code> 用它撈出某個 group 的所有紀錄</td></tr>
+        <tr><td><code>RayClusterIndex</code></td><td><code>ns/cluster</code></td><td>RayCluster 被刪除時,<code>Delete()</code> 一次清掉整個 cluster 的紀錄</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>head 也算一個 group,名稱是 <code>expectations.HeadGroup</code>。</p>
+  <h3>流程(<code>:93</code>)</h3>
+<pre><code>items := r.itemsCache.ByIndex(GroupIndex, "ns/cluster/group")  // ① 撈出這個 group 的所有紀錄
+for i := range items {
+    rp := items[i].(*rayPod)
+    if !r.isPodScaled(ctx, rp) {     // ② 逐筆用 cached Get 檢查
+        return false                 // ③ 有一筆沒滿足就立刻回 false
+    }
+    r.itemsCache.Delete(items[i])    // ④ 滿足的那筆從帳本刪掉
+}
+return true                          // ⑤ 全部滿足,或本來就沒有紀錄</code></pre>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>action</th><th>怎樣算滿足</th><th>逾時</th></tr></thead>
+      <tbody>
+        <tr><td><code>Create</code></td><td>cached <code>Get</code> 找得到這個 Pod</td><td>有。記錄超過 30 秒(<code>ExpectationsTimeout</code>)也算滿足</td></tr>
+        <tr><td><code>Delete</code></td><td>cached <code>Get</code> 回傳 <code>NotFound</code></td><td><strong>沒有</strong>。cache 一直看得到 Pod,就一直不滿足</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>容易被誤會的地方</h3>
+  <ol>
+    <li><strong>名字像查詢,其實有副作用。</strong>滿足的紀錄會被刪掉(④)。在 #5495 裡,Reconcile B 的 <code>IsSatisfied</code> 看到 head A 之後,head A 的紀錄就消失了。B 接著拿舊的空清單建了 head B,下一輪也沒有紀錄可以擋住它。</li>
+    <li><strong>刪除是逐筆的。</strong>3 筆紀錄中第 1 筆滿足、第 2 筆沒滿足:第 1 筆已被刪,函式在第 2 筆回 false,第 3 筆沒被檢查。下一輪從剩下的第 2、3 筆接著檢查。</li>
+    <li><strong>沒有紀錄就是 <code>true</code>。</strong>第一次 reconcile 或 operator 剛重啟時帳本是空的,直接放行。帳本只在記憶體裡,重啟就沒了,這層保護在重啟後暫時是空的。</li>
+    <li><strong>只回答「cache 是否追上我自己做過的事」,不回答「Pod 數量對不對」。</strong>數量要靠後面的 <code>List</code>。#5495 的問題就是兩次讀取中間 cache 更新了,閘門和清單看到的是不同時間點的 cache。</li>
+  </ol>
+  <div class="note">
+    <p>一句話:<code>IsSatisfied</code> 是一道閘門,「我做過的事 cache 都看到了」才放行,並且順手把已經看到的紀錄劃掉。所以要先過閘門再 <code>List</code>,清單才保證至少和閘門看到的一樣新。</p>
+  </div>
+
+  <h2>9. reconcile ID 去哪查</h2>
+  <p>reconcile ID 是 controller-runtime 產生的,KubeRay 沒有自己定義。每輪 reconcile 開始時產生一個 UUID,掛到 logger 上,也放進 ctx:</p>
+  <p class="cap">controller-runtime@v0.25.0/pkg/internal/controller/controller.go:472</p>
+<pre><code>reconcileID := uuid.NewUUID()
+log = log.WithValues("reconcileID", reconcileID)
+ctx = addReconcileID(ctx, reconcileID)</code></pre>
+  <p>KubeRay 用 <code>ctrl.LoggerFrom(ctx)</code> 取 logger(例如 <code>raycluster_controller.go:116</code>),同一輪的每一行 log 都自動帶這個欄位。operator stdout 預設是 JSON(<code>main.go:107</code>,<code>--log-stdout-encoder=json</code>)。</p>
+<pre><code># kubectl
+kubectl -n &lt;ns&gt; logs deploy/kuberay-operator --since=1h \
+  | jq -c 'select(.RayCluster.name=="&lt;cluster&gt;") | {ts, reconcileID, msg}'
+
+# GKE Cloud Logging
+resource.type="k8s_container"
+resource.labels.container_name="kuberay-operator"
+jsonPayload.reconcileID="&lt;id&gt;"</code></pre>
+  <p>程式裡要拿到 ID,用 <code>controller.ReconcileIDFromContext(ctx)</code>(同檔 <code>:530</code>)。</p>
+  <p>issue 裡的 Reconcile A / B 就是依 <code>reconcileID</code> 分組,再對照 audit log 兩次 create 的時間戳。兩組 log 來自同一個 operator Pod、ID 不同、時間先後錯開,所以能判斷是同一個 operator 依序跑了兩輪,而不是兩個 replica 同時在跑。</p>
+
+  <h2>10. 待辦</h2>
   <div class="note">
     <ul>
       <li>等 epall 回覆是否自己發 PR(已在 issue 留言詢問)。</li>
