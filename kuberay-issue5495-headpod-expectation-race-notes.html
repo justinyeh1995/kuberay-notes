@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Head Pod Expectation Race</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F6F6;
+    --surface: #FFFFFF;
+    --ink: #14232B;
+    --muted: #55676F;
+    --rule: #D3DDDE;
+    --accent: #0B7A75;
+    --accent-soft: #DDF0EE;
+    --warn: #A94A16;
+    --warn-soft: #F7E6DB;
+    --code-bg: #E8EFEF;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E191E;
+      --surface: #142229;
+      --ink: #E2ECEE;
+      --muted: #93A5AC;
+      --rule: #26383F;
+      --accent: #4FC3BB;
+      --accent-soft: #123A3A;
+      --warn: #F0965E;
+      --warn-soft: #3A2417;
+      --code-bg: #1A2B32;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E191E;
+    --surface: #142229;
+    --ink: #E2ECEE;
+    --muted: #93A5AC;
+    --rule: #26383F;
+    --accent: #4FC3BB;
+    --accent-soft: #123A3A;
+    --warn: #F0965E;
+    --warn-soft: #3A2417;
+    --code-bg: #1A2B32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    padding-inline: 16px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 760px; margin-inline: auto; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.3; }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 8px; }
+  h2 { font-size: 1.3rem; font-weight: 700; margin: 56px 0 12px; padding-top: 24px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 6px; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.3em; margin: 0 0 14px; max-width: 68ch; }
+  li { margin-bottom: 6px; }
+
+  .meta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); letter-spacing: 0.02em; margin-bottom: 24px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 8px; }
+
+  .verdict { background: var(--accent-soft); border-radius: 6px; padding: 18px 20px; margin: 20px 0 8px; }
+  .verdict p:last-child, .verdict ul:last-child { margin-bottom: 0; }
+  .verdict strong { color: var(--accent); }
+
+  .q { font-weight: 700; margin: 32px 0 6px; }
+  .q::before { content: "Q  "; font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); letter-spacing: 0.06em; }
+
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0 0 16px; font-size: 0.82rem; line-height: 1.6; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .cap { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); margin: 0 0 6px; }
+
+  .tablewrap { overflow-x: auto; margin: 8px 0 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.88rem; line-height: 1.55; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .note p:last-child, .note ul:last-child { margin-bottom: 0; }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 1.6rem; }
+    body { padding-block: 28px 56px; }
+  }
+
+  .flow { display: grid; gap: 6px; margin: 8px 0 18px; }
+  .round { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 6px; }
+  .step { border: 1px solid var(--rule); border-left-width: 4px; background: var(--surface); border-radius: 6px; padding: 8px 14px; font-size: 0.92rem; }
+  .step.fail { border-left-color: var(--warn); }
+  .step.ok { border-left-color: var(--accent); }
+  .step.skip { border-style: dashed; color: var(--muted); }
+  .step b { font-family: var(--font-mono); font-weight: 500; }
+  .arrow { text-align: center; color: var(--muted); font-size: 0.84rem; line-height: 1.4; }
+  .ste { border: 1px solid var(--rule); background: var(--surface); border-radius: 6px; padding: 16px 20px; margin: 12px 0 16px; }
+  .ste h4 { font-size: 0.95rem; margin: 14px 0 6px; }
+  .ste h4:first-child { margin-top: 0; }
+  .ste ol { margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">KubeRay issue #5495 · head pod reconciliation</p>
+  <h1>Head Pod Expectation Race</h1>
+  <p class="meta">整理自 2026-11-07 的問答(含與 Gemini 對話的校正) · issue <a href="https://github.com/kuberay-project/kuberay/issues/5495">#5495</a> · 重現 test <a href="https://github.com/kuberay-project/kuberay/compare/master...epall:kuberay:5495-head-pod-creation-race">epall:5495-head-pod-creation-race</a> · branch <code>fix/i-5495-headpod-expectation-race</code> · 相關筆記:<a href="kuberay-issue5364-worker-group-deadlock-notes.html">Issue 5364 Worker Group Deadlock</a>、<a href="kuberay-pod-create-vs-schedule-notes.html">Pod Create vs Schedule</a></p>
+
+  <div class="verdict">
+    <p><strong>一句話:</strong><code>reconcilePods</code> 先 <code>List</code> head pods(L1041),到 L1056 才呼叫 <code>IsSatisfied</code>。如果 informer 剛好在這兩次讀取之間收到上一輪建立的 head A,expectation 就會判定為滿足,但 controller 手上拿的還是先前那份空的清單,於是又建了一個 head B。</p>
+    <ul>
+      <li><strong>不是 cache 壞了:</strong>informer 的最終一致性完全照設計運作,錯的是讀取順序。</li>
+      <li><strong>修法:</strong>先 <code>IsSatisfied</code>,通過才 <code>List</code>。worker 路徑(L1125 → L1134)本來就是這個順序,只有 head 路徑寫反了。</li>
+      <li><strong>測試:</strong>epall 的 compare branch 只有 test,沒有 fix 的 diff。issue 裡回報:現行順序 10/10 失敗,調換順序後 10/10 通過。</li>
+    </ul>
+  </div>
+
+  <h2>1. 現場發生了什麼</h2>
+  <p>KubeRay v1.6.2、GKE 1.32。同一個 RayCluster 在 270ms 內被建了兩個 head,兩次 create request body 完全相同(都用 <code>generateName</code>)、來自同一個 operator Pod,但是由兩個不同的 reconcile ID 發出。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>UTC 時間</th><th>事件</th></tr></thead>
+      <tbody>
+        <tr><td><code>22:32:51.650</code></td><td>Reconcile A:找到 0 個 head,建立 head</td></tr>
+        <tr><td><code>22:32:51.748</code></td><td>Reconcile A:建立 <code>...-c8nnt</code></td></tr>
+        <tr><td><code>22:32:51.884</code></td><td>Reconcile A:status 計算時仍看到 0 個 head(<code>HeadPodNotFound</code>)</td></tr>
+        <tr><td><code>22:32:51.921</code></td><td>Reconcile B:找到 0 個 head,建立 head</td></tr>
+        <tr><td><code>22:32:52.016</code></td><td>Reconcile B:建立 <code>...-lfbq7</code></td></tr>
+        <tr><td><code>22:32:52.018</code></td><td>Reconcile B:看到原本的 <code>...-c8nnt</code> 為 Pending</td></tr>
+        <tr><td><code>22:32:52.034</code></td><td>Reconcile B:status update conflict(發生在兩次 create 之後,不是成因)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p><strong>影響:</strong>兩個 head 被排到不同 node。head service 是 headless,設了 <code>publishNotReadyAddresses: true</code>,selector 同時選到兩個 head,同一個 service 名稱後面掛著兩個獨立的 GCS。</p>
+  <p>相關 issue:<a href="https://github.com/kuberay-project/kuberay/issues/5336">#5336</a>(Guarantee at most one serving head Pod,範圍較廣、被歸為 feature)、<a href="https://github.com/kuberay-project/kuberay/issues/3013">#3013</a>(Make head Pod name deterministic)。</p>
+
+  <h2>2. 交錯時序</h2>
+  <p class="q">需要兩個 reconcile 同時跑嗎?</p>
+  <p>不需要。controller-runtime 對同一個 key 不會同時跑兩個 reconcile。A 和 B 是<strong>先後</strong>執行的,真正在競爭的是 <strong>reconcile goroutine</strong> 和 <strong>informer goroutine</strong>:informer 在 B 的兩次讀取之間更新了 cache。</p>
+  <div class="flow">
+    <div class="round">Reconcile A</div>
+    <div class="step ok">API Server 建立 head A 成功,<b>ExpectScalePod(head A, Create)</b> 記下一筆 expectation</div>
+    <div class="round">Reconcile B</div>
+    <div class="step fail"><b>r.List(&amp;headPods)</b>:head A 還沒進 informer cache → 空清單</div>
+    <div class="step skip">(若啟用 batch scheduler,<b>DoBatchSchedulingOnSubmission</b> 會打 API,空檔變更長)</div>
+    <div class="arrow">↓ informer 在這段空檔收到 head A 的 watch 事件,寫入 cache</div>
+    <div class="step ok"><b>IsSatisfied</b> → cached <b>Get(head A)</b> 找到 → 刪掉 expectation、回傳 true</div>
+    <div class="step fail">拿第一步那份空清單判斷 <b>len(headPods.Items) == 0</b> → 建立 head B</div>
+  </div>
+
+  <h2>3. 兩種 cache:informer cache 和 itemsCache</h2>
+  <p class="q"><code>k8s.io/client-go/tools/cache</code> 就是 informer cache 嗎?</p>
+  <p>不完全是。這個套件同時包含 informer 的底層元件(Reflector、DeltaFIFO、Indexer)和通用的記憶體 store。<code>scale_expectations.go</code> 用的只是其中的 <code>cache.NewIndexer</code>,沒有 watch。</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>名稱</th><th>存什麼</th><th>誰更新</th><th>跟 API Server 同步?</th></tr></thead>
+      <tbody>
+        <tr><td>informer cache</td><td>叢集裡的 Pod 物件,<code>r.Get</code> / <code>r.List</code> 讀它</td><td>Reflector 透過 List/Watch 非同步寫入</td><td>是(最終一致)</td></tr>
+        <tr><td><code>itemsCache</code>(<code>cache.Indexer</code>)</td><td>「我剛建/刪了某個 Pod」的 <code>rayPod</code> 紀錄</td><td>程式碼手動:<code>ExpectScalePod</code> 加入、<code>IsSatisfied</code> 刪除</td><td>否</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Pod 的讀取確實走 cache:<code>main.go:282-290</code> 只對 Pod 設了 label selector(<code>ByObject</code>),沒有 <code>DisableFor</code>。</p>
+
+  <h2>4. Expectation 在做什麼</h2>
+  <p class="q">為什麼需要 expectation?</p>
+  <p>對抗 cache lag。上一輪剛建好 Pod,watch 事件還在路上,下一輪 <code>List</code> 看不到就會再建一次。expectation 是一本本地帳:建立/刪除成功後記一筆,下一輪先問「記帳的那個 Pod,cache 看得到了嗎?」看不到就跳過這個 group 的 scale 決策。KubeRay 在 <a href="https://github.com/kuberay-project/kuberay/pull/2150">PR #2150</a>(2024-11 合併)加入。</p>
+  <p class="cap">ray-operator/controllers/ray/expectations/scale_expectations.go:73</p>
+<pre><code>func (r *rayClusterScaleExpectationImpl) isPodScaled(ctx context.Context, rp *rayPod) bool {
+    pod := &amp;corev1.Pod{}
+    switch rp.action {
+    case Create:
+        if err := r.Get(ctx, ..., pod); err == nil {   // cached Get
+            return true
+        }
+        return rp.recordTimestamp.Add(ExpectationsTimeout).Before(time.Now())  // 30s 逾時
+    case Delete:
+        if err := r.Get(ctx, ..., pod); err != nil {
+            return errors.IsNotFound(err)
+        }
+    }
+    return false
+}</code></pre>
+  <p><code>IsSatisfied</code> 逐筆呼叫 <code>isPodScaled</code>,滿足的就從 <code>itemsCache</code> 刪掉;任一筆不滿足就回傳 false。30 秒逾時是為了避免 Pod 剛建立就被別人刪掉時,expectation 永遠等不到。</p>
+  <p class="q">跟 Kubernetes 上游的差別?</p>
+  <p>上游的 <a href="https://github.com/kubernetes/kubernetes/blob/master/pkg/controller/controller_utils.go"><code>ControllerExpectations</code></a> 用<strong>計數</strong>(adds/dels),由 informer event handler 遞減;KubeRay 改成追蹤<strong>具體 Pod 名稱</strong>,在 <code>IsSatisfied</code> 裡主動 <code>Get</code>。上游 <a href="https://github.com/kubernetes/kubernetes/blob/master/pkg/controller/replicaset/replica_set.go"><code>syncReplicaSet</code></a> 也是先 <code>SatisfiedExpectations</code>、再 <code>podLister.List</code>,跟這次要改的順序一樣。</p>
+  <div class="note">
+    <p>Gemini 說 <code>SatisfiedExpectations</code> 在 <code>manageReplicas()</code> 裡呼叫,不對,是在 <code>syncReplicaSet</code>。</p>
+  </div>
+
+  <h2>5. 重現 test 怎麼讀</h2>
+  <p class="q">為什麼在 <code>Get</code> interceptor 裡呼叫 <code>c.Create</code>?看起來很怪。</p>
+  <p>這是時序注入。fake client 沒有 API Server 也沒有 watch,所有物件都放在同一個記憶體 tracker 裡,所以「寫進 fake client」就等於「informer cache 已經收到」。controller 在 <code>List</code> 之後的下一個 Pod <code>Get</code>,正好是 <code>IsSatisfied</code> 裡那次,把它當觸發點就能精準卡進那段空檔:</p>
+<pre><code>Get: func(ctx, c, key, obj, opts...) error {
+    if _, ok := obj.(*corev1.Pod); ok &amp;&amp; key == client.ObjectKeyFromObject(&amp;firstHead) &amp;&amp; !cacheUpdated {
+        // 模擬 informer 在 List 之後、Get 之前收到 head A
+        require.NoError(t, c.Create(ctx, &amp;firstHead))
+        cacheUpdated = true
+    }
+    return c.Get(ctx, key, obj, opts...)
+},</code></pre>
+  <ol>
+    <li><code>reconcilePods</code> 呼叫 <code>List</code>:firstHead 不在 store → 空清單。</li>
+    <li><code>IsSatisfied</code> 呼叫 <code>Get(firstHead)</code>:interceptor 先把 firstHead 塞進 store,再 <code>Get</code> → 找到 → 滿足。</li>
+    <li>controller 用空清單判斷 → 建 head B。<code>Create</code> interceptor 數到 <code>headCreateAttempts == 1</code>,assert 失敗。</li>
+  </ol>
+  <p><code>cacheUpdated</code> 確保只注入一次。不需要 sleep 或 goroutine,單執行緒就能 100% 重現。</p>
+  <p class="q">其他寫法?</p>
+  <p>可以在 <code>Get</code> 裡直接把 firstHead 填進 <code>obj</code> 回傳,不動 store。但這樣最後 <code>List</code> 驗證剩下幾個 head 時,firstHead 不在 store 裡,assert 要另外處理。原作者的寫法比較短,也讓 store 的最終狀態保持完整。</p>
+
+  <h2>6. 修法,以及為什麼調換順序就夠</h2>
+  <p>把 head 的 <code>List</code> 移到 <code>IsSatisfied</code> 通過之後。batch scheduler 那段保持在 head reconcile 之前。</p>
+  <p class="q">為什麼先檢查再 List 就保證看得到 head A?</p>
+  <p><code>Get</code> 和 <code>List</code> 讀的是<strong>同一個 informer store</strong>。只要 <code>Get</code> 看到了 head A,後面的 <code>List</code> 一定也看得到,除非它真的被刪了。如果 expectation 還沒滿足,就跳過 head,根本不會用到清單。</p>
+  <p class="q">還有沒有漏洞?</p>
+  <ul>
+    <li><strong>30 秒逾時:</strong>逾時後 expectation 會判定為滿足,但 Pod 可能還沒進 cache。要 informer 延遲超過 30 秒才會發生,而且這是原本設計就接受的取捨。</li>
+    <li><strong>Delete 方向:</strong><code>List</code> 還看得到舊 head,<code>Get</code> 卻回 NotFound,判定為滿足。這時走的是 <code>len==1</code> 分支,用的是過期的 head 物件,後果比重複建立輕得多。調換順序後也一併修好。</li>
+  </ul>
+  <div class="note">
+    <p>不滿足時並不是「結束本輪 reconcile」(Gemini 的說法),而是只 log、跳過 head,然後<strong>繼續</strong>跑 worker groups(L1124)。</p>
+  </div>
+
+  <h2>7. Gemini 說法校正</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Gemini 說</th><th>實際</th></tr></thead>
+      <tbody>
+        <tr><td>Reconcile A、B 並行</td><td>同一個 key 的 reconcile 是串行的,競爭對象是 informer goroutine</td></tr>
+        <tr><td>原作者已提供並驗證解法</td><td>compare branch 只有 test;10/10 是 issue 裡的自述</td></tr>
+        <tr><td>未滿足就直接結束 reconcile</td><td>只跳過 head,繼續處理 worker</td></tr>
+        <tr><td><code>manageReplicas()</code> 檢查 expectation</td><td>在 <code>syncReplicaSet</code></td></tr>
+        <tr><td>(沒提到)</td><td>worker 路徑本來就是正確順序;batch scheduler 會讓空檔變大;Delete 方向也有同樣的 stale 問題</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>8. 待辦</h2>
+  <div class="note">
+    <ul>
+      <li>等 epall 回覆是否自己發 PR(已在 issue 留言詢問)。</li>
+      <li>在 <code>fix/i-5495-headpod-expectation-race</code> 加入 epall 的 test,先確認修之前是紅燈。</li>
+      <li>實作:<code>List</code> 移到 <code>IsSatisfied</code> 之後,只在滿足時才 List。確認修之後轉綠。</li>
+      <li>PR 描述:註明 test 出自 epall;說明「讓 head 路徑跟 worker 路徑一致」;寫出同一個 store 的正確性論證;提一句 Delete 方向。</li>
+    </ul>
+  </div>
+</main>
+</body>
+</html>
